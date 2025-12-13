@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Open-AutoGLM Termux 纯 ADB 方案 - 一键部署脚本
-# 版本: 4.4.0 (修复 ADB 检测、优化用户体验)
+# 版本: 4.5.0 (增强 ADB 设备管理)
 set -euo pipefail
 
 ##########  基础工具  ##########
@@ -144,8 +144,8 @@ ensure_setuptools() {
 ##########  ADB 设备计数（修复算术错误）  ##########
 get_adb_device_count() {
   local count
-  count=$(adb devices 2>/dev/null | grep -c "device$" || true)
-  # 确保返回纯数字
+  # 匹配 device 状态（不是 offline/unauthorized 等）
+  count=$(adb devices 2>/dev/null | awk 'NR>1 && $2=="device" {count++} END {print count+0}')
   echo "${count:-0}" | tr -d '[:space:]'
 }
 
@@ -363,7 +363,7 @@ make_launcher() {
   cat > ~/bin/autoglm <<'LAUNCHER_EOF'
 #!/bin/bash
 # AutoGLM 智能启动面板
-# 版本: 4.4.0
+# 版本: 4.5.0
 
 ##########  颜色定义  ##########
 RED='\033[0;31m'
@@ -431,24 +431,74 @@ show_current_config() {
   echo
 }
 
-##########  获取 ADB 设备数量（修复算术错误）  ##########
+##########  获取在线设备数量  ##########
 get_adb_device_count() {
   local count
-  count=$(adb devices 2>/dev/null | grep -c "device$" || true)
-  # 确保返回纯数字，去除所有空白字符
+  count=$(adb devices 2>/dev/null | awk 'NR>1 && $2=="device" {count++} END {print count+0}')
   echo "${count:-0}" | tr -d '[:space:]'
 }
 
-##########  获取 ADB 设备列表（返回数组格式）  ##########
-get_adb_devices() {
-  adb devices 2>/dev/null | grep "device$" | awk '{print $1}'
+##########  获取所有设备数量（包括 offline）  ##########
+get_adb_all_device_count() {
+  local count
+  count=$(adb devices 2>/dev/null | awk 'NR>1 && NF>=2 && $1!="" {count++} END {print count+0}')
+  echo "${count:-0}" | tr -d '[:space:]'
+}
+
+##########  解析设备信息  ##########
+# 返回格式: serial|status|model|type
+parse_device_info() {
+  local line="$1"
+  local serial status model device_type
+  
+  serial=$(echo "$line" | awk '{print $1}')
+  status=$(echo "$line" | awk '{print $2}')
+  
+  # 提取 model
+  model=$(echo "$line" | grep -oP 'model:\K[^ ]+' || echo "未知型号")
+  
+  # 判断连接类型
+  if [[ "$serial" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+$ ]]; then
+    device_type="无线"
+  else
+    device_type="USB"
+  fi
+  
+  echo "${serial}|${status}|${model}|${device_type}"
+}
+
+##########  获取状态显示文字  ##########
+get_status_display() {
+  local status="$1"
+  case "$status" in
+    device)
+      echo -e "${GREEN}在线${NC}"
+      ;;
+    offline)
+      echo -e "${RED}离线${NC}"
+      ;;
+    unauthorized)
+      echo -e "${YELLOW}未授权${NC}"
+      ;;
+    *)
+      echo -e "${YELLOW}${status}${NC}"
+      ;;
+  esac
 }
 
 show_adb_status() {
-  local count
-  count=$(get_adb_device_count)
-  if [[ "$count" -gt 0 ]]; then
-    echo -e "${GREEN}━━━ ADB 状态: ✓ 已连接 $count 台设备 ━━━${NC}"
+  local online_count all_count
+  online_count=$(get_adb_device_count)
+  all_count=$(get_adb_all_device_count)
+  
+  if [[ "$online_count" -gt 0 ]]; then
+    if [[ "$all_count" -gt "$online_count" ]]; then
+      echo -e "${GREEN}━━━ ADB 状态: ✓ ${online_count} 台在线${NC} ${YELLOW}/ ${all_count} 台总计 ━━━${NC}"
+    else
+      echo -e "${GREEN}━━━ ADB 状态: ✓ 已连接 ${online_count} 台设备 ━━━${NC}"
+    fi
+  elif [[ "$all_count" -gt 0 ]]; then
+    echo -e "${YELLOW}━━━ ADB 状态: ⚠ ${all_count} 台设备（均离线/未授权）━━━${NC}"
   else
     echo -e "${RED}━━━ ADB 状态: ✗ 未检测到设备 ━━━${NC}"
   fi
@@ -464,13 +514,11 @@ show_main_menu() {
   echo -e "${YELLOW}━━━ 主菜单 ━━━${NC}"
   echo
   echo -e "  ${GREEN}1.${NC} 🚀 使用当前配置启动"
-  echo -e "  ${GREEN}2.${NC} 📱 配置 ADB 无线调试"
+  echo -e "  ${GREEN}2.${NC} 📱 ADB 设备管理"
   echo -e "  ${GREEN}3.${NC} ⚙️  修改 AI 配置"
   echo -e "  ${GREEN}4.${NC} 📋 查看支持的应用列表"
   echo -e "  ${GREEN}5.${NC} 🔍 查看详细配置"
-  echo -e "  ${GREEN}6.${NC} 🔌 查看 ADB 设备列表"
-  echo -e "  ${GREEN}7.${NC} 🔄 切换 ADB 设备"
-  echo -e "  ${GREEN}8.${NC} 🗑️  一键卸载"
+  echo -e "  ${GREEN}6.${NC} 🗑️  一键卸载"
   echo -e "  ${GREEN}0.${NC} ❌ 退出"
   echo
 }
@@ -559,7 +607,7 @@ configure_adb_wireless() {
       echo
       adb devices -l
       echo
-      read -rp "按回车返回主菜单... "
+      read -rp "按回车返回... "
       return 0
     fi
   fi
@@ -567,6 +615,60 @@ configure_adb_wireless() {
   echo -e "${RED}[ERROR]${NC} 连接失败，请检查 IP:端口 和网络！"
   read -rp "按回车返回... "
   return 1
+}
+
+##########  显示设备详细列表  ##########
+show_device_list() {
+  show_header
+  echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${CYAN}║${NC}              ${BOLD}📋 ADB 设备详细列表${NC}                              ${CYAN}║${NC}"
+  echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+  echo
+  
+  local all_count
+  all_count=$(get_adb_all_device_count)
+  
+  if [[ "$all_count" -eq 0 ]]; then
+    echo -e "${YELLOW}未检测到任何设备${NC}"
+    echo
+    read -rp "按回车返回... "
+    return
+  fi
+  
+  echo -e "${BLUE}设备列表：${NC}"
+  echo -e "┌────┬────────────────────────┬──────────┬────────────────┬────────┐"
+  printf "│ %-2s │ %-22s │ %-8s │ %-14s │ %-6s │\n" "序" "设备地址" "状态" "型号" "类型"
+  echo -e "├────┼────────────────────────┼──────────┼────────────────┼────────┤"
+  
+  local i=1
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local info serial status model dtype status_display
+    info=$(parse_device_info "$line")
+    IFS='|' read -r serial status model dtype <<< "$info"
+    status_display=$(get_status_display "$status")
+    
+    # 截断过长的字段
+    [[ ${#serial} -gt 22 ]] && serial="${serial:0:19}..."
+    [[ ${#model} -gt 14 ]] && model="${model:0:11}..."
+    
+    # 标记当前选中的设备
+    local marker=""
+    if [[ "$serial" == "${PHONE_AGENT_DEVICE_ID:-}" ]]; then
+      marker="${GREEN}*${NC}"
+    fi
+    
+    printf "│ ${GREEN}%-2s${NC} │ %-22s │ %b │ %-14s │ %-6s │%b\n" "$i" "$serial" "$status_display" "$model" "$dtype" "$marker"
+    ((i++))
+  done < <(adb devices -l 2>/dev/null | awk 'NR>1 && NF>=2 && $1!=""')
+  
+  echo -e "└────┴────────────────────────┴──────────┴────────────────┴────────┘"
+  
+  if [[ -n "${PHONE_AGENT_DEVICE_ID:-}" ]]; then
+    echo -e "\n${GREEN}*${NC} 表示当前选中的设备"
+  fi
+  echo
+  read -rp "按回车返回... "
 }
 
 ##########  切换 ADB 设备  ##########
@@ -577,10 +679,10 @@ switch_adb_device() {
   echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
   echo
   
-  local count
-  count=$(get_adb_device_count)
+  local all_count
+  all_count=$(get_adb_all_device_count)
   
-  if [[ "$count" -eq 0 ]]; then
+  if [[ "$all_count" -eq 0 ]]; then
     echo -e "${RED}[ERROR]${NC} 未检测到任何 ADB 设备！"
     echo -e "${YELLOW}请先配置 ADB 无线调试连接设备${NC}"
     echo
@@ -588,25 +690,36 @@ switch_adb_device() {
     return 1
   fi
   
-  echo -e "${BLUE}当前已连接的设备：${NC}"
+  echo -e "${BLUE}可选设备：${NC}"
   echo -e "${CYAN}────────────────────────────────────────────────────────────────${NC}"
   
-  # 获取设备列表并编号显示
+  # 收集设备信息
   local devices=()
+  local statuses=()
+  local models=()
+  local dtypes=()
   local i=1
-  while IFS= read -r device; do
-    if [[ -n "$device" ]]; then
-      devices+=("$device")
-      local device_info
-      device_info=$(adb -s "$device" shell getprop ro.product.model 2>/dev/null || echo "未知设备")
-      if [[ "$device" == "${PHONE_AGENT_DEVICE_ID:-}" ]]; then
-        echo -e "  ${GREEN}$i.${NC} $device - ${CYAN}$device_info${NC} ${GREEN}[当前选中]${NC}"
-      else
-        echo -e "  ${GREEN}$i.${NC} $device - ${CYAN}$device_info${NC}"
-      fi
-      ((i++))
+  
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local info serial status model dtype status_display
+    info=$(parse_device_info "$line")
+    IFS='|' read -r serial status model dtype <<< "$info"
+    status_display=$(get_status_display "$status")
+    
+    devices+=("$serial")
+    statuses+=("$status")
+    models+=("$model")
+    dtypes+=("$dtype")
+    
+    local marker=""
+    if [[ "$serial" == "${PHONE_AGENT_DEVICE_ID:-}" ]]; then
+      marker=" ${GREEN}[当前]${NC}"
     fi
-  done < <(get_adb_devices)
+    
+    echo -e "  ${GREEN}$i.${NC} $serial - ${CYAN}$model${NC} ($dtype) [${status_display}]${marker}"
+    ((i++))
+  done < <(adb devices -l 2>/dev/null | awk 'NR>1 && NF>=2 && $1!=""')
   
   echo -e "${CYAN}────────────────────────────────────────────────────────────────${NC}"
   echo
@@ -628,7 +741,19 @@ switch_adb_device() {
       ;;
     *)
       if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le "${#devices[@]}" ]]; then
-        PHONE_AGENT_DEVICE_ID="${devices[$((choice-1))]}"
+        local idx=$((choice-1))
+        local selected_device="${devices[$idx]}"
+        local selected_status="${statuses[$idx]}"
+        
+        if [[ "$selected_status" != "device" ]]; then
+          echo -e "${YELLOW}[WARN]${NC} 该设备当前状态为 ${selected_status}，可能无法正常使用"
+          read -rp "是否仍要选择？(y/N): " confirm
+          if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            return 0
+          fi
+        fi
+        
+        PHONE_AGENT_DEVICE_ID="$selected_device"
         save_config
         echo -e "${GREEN}[SUCC]${NC} 已切换到设备: ${CYAN}$PHONE_AGENT_DEVICE_ID${NC}"
         read -rp "按回车继续... "
@@ -640,20 +765,167 @@ switch_adb_device() {
   esac
 }
 
-##########  ADB 配置子菜单  ##########
+##########  断开指定设备  ##########
+disconnect_device() {
+  show_header
+  echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${CYAN}║${NC}              ${BOLD}🔌 断开 ADB 设备${NC}                                 ${CYAN}║${NC}"
+  echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+  echo
+  
+  local all_count
+  all_count=$(get_adb_all_device_count)
+  
+  if [[ "$all_count" -eq 0 ]]; then
+    echo -e "${YELLOW}当前没有已连接的设备${NC}"
+    echo
+    read -rp "按回车返回... "
+    return
+  fi
+  
+  echo -e "${BLUE}已连接的设备：${NC}"
+  echo -e "${CYAN}────────────────────────────────────────────────────────────────${NC}"
+  
+  local devices=()
+  local dtypes=()
+  local i=1
+  
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    local info serial status model dtype status_display
+    info=$(parse_device_info "$line")
+    IFS='|' read -r serial status model dtype <<< "$info"
+    status_display=$(get_status_display "$status")
+    
+    devices+=("$serial")
+    dtypes+=("$dtype")
+    
+    echo -e "  ${GREEN}$i.${NC} $serial - ${CYAN}$model${NC} ($dtype) [${status_display}]"
+    ((i++))
+  done < <(adb devices -l 2>/dev/null | awk 'NR>1 && NF>=2 && $1!=""')
+  
+  echo -e "${CYAN}────────────────────────────────────────────────────────────────${NC}"
+  echo
+  echo -e "  ${GREEN}a.${NC} 断开所有无线设备"
+  echo -e "  ${GREEN}r.${NC} 重启 ADB 服务（断开所有设备）"
+  echo -e "  ${GREEN}c.${NC} 取消返回"
+  echo
+  
+  read -rp "请选择要断开的设备 [1-$((i-1))/a/r/c]: " choice
+  
+  case "$choice" in
+    c|C)
+      return 0
+      ;;
+    a|A)
+      echo -e "${BLUE}[INFO]${NC} 断开所有无线设备..."
+      adb disconnect 2>/dev/null || true
+      echo -e "${GREEN}[SUCC]${NC} 已断开所有无线设备"
+      sleep 1
+      adb devices
+      read -rp "按回车继续... "
+      ;;
+    r|R)
+      echo -e "${YELLOW}[WARN]${NC} 重启 ADB 服务将断开所有设备（包括 USB）"
+      read -rp "确认重启？(y/N): " confirm
+      if [[ "$confirm" =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}[INFO]${NC} 正在重启 ADB 服务..."
+        adb kill-server 2>/dev/null || true
+        sleep 1
+        adb start-server 2>/dev/null || true
+        echo -e "${GREEN}[SUCC]${NC} ADB 服务已重启"
+        sleep 1
+        adb devices
+      fi
+      read -rp "按回车继续... "
+      ;;
+    *)
+      if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le "${#devices[@]}" ]]; then
+        local idx=$((choice-1))
+        local selected_device="${devices[$idx]}"
+        local selected_type="${dtypes[$idx]}"
+        
+        if [[ "$selected_type" == "无线" ]]; then
+          echo -e "${BLUE}[INFO]${NC} 断开无线设备: $selected_device"
+          adb disconnect "$selected_device" 2>&1
+          echo -e "${GREEN}[SUCC]${NC} 已断开: $selected_device"
+          
+          # 如果断开的是当前选中的设备，清空配置
+          if [[ "$selected_device" == "${PHONE_AGENT_DEVICE_ID:-}" ]]; then
+            PHONE_AGENT_DEVICE_ID=""
+            save_config
+            echo -e "${YELLOW}[INFO]${NC} 已清除当前设备选择"
+          fi
+        else
+          echo -e "${YELLOW}[WARN]${NC} USB 设备无法通过软件断开"
+          echo -e "${CYAN}请物理拔除 USB 线缆，或选择 'r' 重启 ADB 服务${NC}"
+        fi
+        read -rp "按回车继续... "
+      else
+        echo -e "${RED}无效选择${NC}"
+        read -rp "按回车继续... "
+      fi
+      ;;
+  esac
+}
+
+##########  快速连接设备  ##########
+quick_connect() {
+  show_header
+  echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+  echo -e "${CYAN}║${NC}              ${BOLD}⚡ 快速连接${NC}                                     ${CYAN}║${NC}"
+  echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+  echo
+  echo -e "${YELLOW}适用于已配对过的设备${NC}"
+  echo
+  read -rp "输入设备 IP:端口（如 192.168.1.13:5555）: " connect_host
+  
+  if [[ -z "$connect_host" ]]; then
+    echo -e "${RED}[ERROR]${NC} IP:端口不能为空"
+    read -rp "按回车返回... "
+    return 1
+  fi
+  
+  echo -e "${BLUE}[INFO]${NC} 正在连接 $connect_host ..."
+  if adb connect "$connect_host" 2>&1; then
+    sleep 1
+    local count
+    count=$(get_adb_device_count)
+    if [[ "$count" -gt 0 ]]; then
+      echo -e "${GREEN}[SUCC]${NC} 连接成功！"
+      echo
+      adb devices -l
+    else
+      echo -e "${YELLOW}[WARN]${NC} 连接可能未完全成功，请检查设备状态"
+      adb devices -l
+    fi
+  else
+    echo -e "${RED}[ERROR]${NC} 连接失败"
+  fi
+  echo
+  read -rp "按回车继续... "
+}
+
+##########  ADB 设备管理菜单  ##########
 adb_menu() {
   while true; do
     show_header
     show_adb_status
     
-    echo -e "${YELLOW}━━━ ADB 配置菜单 ━━━${NC}"
+    # 显示当前选中的设备
+    if [[ -n "${PHONE_AGENT_DEVICE_ID:-}" ]]; then
+      echo -e "${BLUE}当前选中设备:${NC} ${GREEN}$PHONE_AGENT_DEVICE_ID${NC}"
+      echo
+    fi
+    
+    echo -e "${YELLOW}━━━ ADB 设备管理 ━━━${NC}"
     echo
-    echo -e "  ${GREEN}1.${NC} 📱 配置无线调试（配对+连接）"
-    echo -e "  ${GREEN}2.${NC} 🔌 仅连接（已配对过）"
-    echo -e "  ${GREEN}3.${NC} 📋 查看设备列表"
+    echo -e "  ${GREEN}1.${NC} 📱 配对新设备（配对+连接）"
+    echo -e "  ${GREEN}2.${NC} ⚡ 快速连接（已配对过）"
+    echo -e "  ${GREEN}3.${NC} 📋 查看设备详细列表"
     echo -e "  ${GREEN}4.${NC} 🔄 切换活动设备"
-    echo -e "  ${GREEN}5.${NC} ❓ 查看 ADB Keyboard 安装说明"
-    echo -e "  ${GREEN}6.${NC} 🔌 断开所有设备"
+    echo -e "  ${GREEN}5.${NC} 🔌 断开设备连接"
+    echo -e "  ${GREEN}6.${NC} ❓ ADB Keyboard 安装说明"
     echo -e "  ${GREEN}0.${NC} ↩️  返回主菜单"
     echo
     read -rp "请选择 [0-6]: " choice
@@ -663,35 +935,19 @@ adb_menu() {
         configure_adb_wireless
         ;;
       2)
-        show_header
-        echo -e "${CYAN}快速连接（适用于已配对过的设备）${NC}"
-        echo
-        read -rp "输入设备 IP:端口: " connect_host
-        if [[ -n "$connect_host" ]]; then
-          adb connect "$connect_host" 2>&1
-          sleep 1
-          adb devices
-        fi
-        read -rp "按回车继续... "
+        quick_connect
         ;;
       3)
-        show_header
-        echo -e "${CYAN}ADB 设备列表:${NC}"
-        echo
-        adb devices -l 2>/dev/null || echo "无法获取设备列表"
-        echo
-        read -rp "按回车继续... "
+        show_device_list
         ;;
       4)
         switch_adb_device
         ;;
       5)
-        remind_adb_keyboard
+        disconnect_device
         ;;
       6)
-        adb disconnect 2>/dev/null || true
-        echo -e "${GREEN}[SUCC]${NC} 已断开所有设备"
-        read -rp "按回车继续... "
+        remind_adb_keyboard
         ;;
       0)
         return
@@ -781,18 +1037,6 @@ list_apps() {
   read -rp "按回车返回主菜单... "
 }
 
-##########  查看 ADB 设备  ##########
-view_adb_devices() {
-  show_header
-  echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-  echo -e "${CYAN}║${NC}              ${BOLD}🔌 ADB 设备列表${NC}                                 ${CYAN}║${NC}"
-  echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
-  echo
-  adb devices -l 2>/dev/null || echo "无法获取设备列表"
-  echo
-  read -rp "按回车返回主菜单... "
-}
-
 ##########  检测是否在 Termux 环境  ##########
 in_termux() {
   [[ -n "${TERMUX_VERSION:-}" ]]
@@ -831,12 +1075,9 @@ uninstall_pip_deps() {
   echo -e "${BLUE}[INFO]${NC} 将卸载以下 pip 依赖包："
   echo -e "${CYAN}────────────────────────────────────────${NC}"
   
-  # 显示将要卸载的包
   local pkg_list=()
   while IFS= read -r pkg || [[ -n "$pkg" ]]; do
-    # 跳过空行和注释
     [[ -z "$pkg" || "$pkg" =~ ^# ]] && continue
-    # 提取包名（去掉版本号和extras）
     local pkg_name
     pkg_name=$(echo "$pkg" | sed -E 's/[<>=!].*//' | sed 's/\[.*\]//' | tr -d ' ')
     if [[ -n "$pkg_name" ]]; then
@@ -845,18 +1086,15 @@ uninstall_pip_deps() {
     fi
   done < "$req_file"
   
-  # 添加项目本体
   echo -e "  • open-autoglm (项目本体)"
   echo -e "${CYAN}────────────────────────────────────────${NC}"
   echo
   
-  # 卸载项目本体
   echo -e "${BLUE}[INFO]${NC} 卸载项目本体..."
   python -m pip uninstall -y open-autoglm 2>/dev/null || true
   python -m pip uninstall -y autoglm 2>/dev/null || true
   python -m pip uninstall -y Open-AutoGLM 2>/dev/null || true
   
-  # 卸载依赖包
   for pkg_name in "${pkg_list[@]}"; do
     echo -e "${BLUE}[INFO]${NC} 卸载 $pkg_name ..."
     python -m pip uninstall -y "$pkg_name" 2>/dev/null || true
@@ -877,7 +1115,6 @@ uninstall_basic() {
   
   local did_something=false
   
-  # 1. 询问是否卸载 pip 依赖
   echo -e "${CYAN}━━━ 第 1 步：pip 依赖包 ━━━${NC}"
   if [[ -f "$AUTOGLM_DIR/requirements.txt" ]]; then
     echo -e "${YELLOW}检测到项目依赖文件：$AUTOGLM_DIR/requirements.txt${NC}"
@@ -890,7 +1127,6 @@ uninstall_basic() {
     fi
   else
     echo -e "${YELLOW}[WARN]${NC} 未找到 requirements.txt，跳过此步骤"
-    # 仍然尝试卸载项目本体
     if ask_yes_no "是否卸载项目本体包（open-autoglm）？"; then
       python -m pip uninstall -y open-autoglm 2>/dev/null || true
       python -m pip uninstall -y autoglm 2>/dev/null || true
@@ -901,7 +1137,6 @@ uninstall_basic() {
   fi
   echo
   
-  # 2. 询问是否删除项目目录
   echo -e "${CYAN}━━━ 第 2 步：项目目录 ━━━${NC}"
   if [[ -d "$AUTOGLM_DIR" ]]; then
     echo -e "${YELLOW}项目目录：$AUTOGLM_DIR${NC}"
@@ -918,7 +1153,6 @@ uninstall_basic() {
   fi
   echo
   
-  # 3. 询问是否删除 autoglm 命令和配置文件
   echo -e "${CYAN}━━━ 第 3 步：autoglm 命令与配置文件 ━━━${NC}"
   echo -e "${YELLOW}包含以下内容：${NC}"
   echo -e "  • autoglm 命令: ${CYAN}$HOME/bin/autoglm${NC}"
@@ -926,19 +1160,16 @@ uninstall_basic() {
   echo -e "  • .bashrc 中的环境变量配置"
   echo
   if ask_yes_no "是否删除 autoglm 命令、配置文件和环境变量？"; then
-    # 删除 autoglm 命令
     if [[ -f "$HOME/bin/autoglm" ]]; then
       rm -f "$HOME/bin/autoglm"
       echo -e "${GREEN}[SUCC]${NC} 已删除: $HOME/bin/autoglm"
     fi
     
-    # 删除配置文件目录
     if [[ -d "$HOME/.autoglm" ]]; then
       rm -rf "$HOME/.autoglm"
       echo -e "${GREEN}[SUCC]${NC} 已删除: $HOME/.autoglm"
     fi
     
-    # 清理 .bashrc 中的配置
     if [[ -f "$HOME/.bashrc" ]]; then
       sed -i '/source ~\/.autoglm\/config.sh/d' "$HOME/.bashrc" 2>/dev/null || true
       sed -i '/source \$HOME\/.autoglm\/config.sh/d' "$HOME/.bashrc" 2>/dev/null || true
@@ -950,7 +1181,6 @@ uninstall_basic() {
   fi
   echo
   
-  # 显示结果
   if [[ "$did_something" == true ]]; then
     echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║${NC}              ${BOLD}✅ 卸载操作完成！${NC}                                ${GREEN}║${NC}"
@@ -963,7 +1193,6 @@ uninstall_basic() {
   echo
   read -rp "按回车继续... "
   
-  # 如果删除了 autoglm 命令本身，需要退出
   if [[ ! -f "$HOME/bin/autoglm" ]]; then
     echo -e "${YELLOW}autoglm 命令已删除，即将退出...${NC}"
     exit 0
@@ -983,7 +1212,6 @@ uninstall_full() {
   
   local did_something=false
   
-  # 1. 询问是否卸载项目 pip 依赖
   echo -e "${CYAN}━━━ 第 1 步：项目 pip 依赖包 ━━━${NC}"
   if [[ -f "$AUTOGLM_DIR/requirements.txt" ]]; then
     echo -e "${YELLOW}检测到项目依赖文件：$AUTOGLM_DIR/requirements.txt${NC}"
@@ -1006,7 +1234,6 @@ uninstall_full() {
   fi
   echo
   
-  # 2. 询问是否卸载部署时安装的核心 pip 包
   echo -e "${CYAN}━━━ 第 2 步：部署时安装的核心 pip 包 ━━━${NC}"
   echo -e "${YELLOW}包含以下包：${NC}"
   echo -e "  • maturin"
@@ -1031,7 +1258,6 @@ uninstall_full() {
   fi
   echo
   
-  # 3. 询问是否删除项目目录
   echo -e "${CYAN}━━━ 第 3 步：项目目录 ━━━${NC}"
   if [[ -d "$AUTOGLM_DIR" ]]; then
     echo -e "${YELLOW}项目目录：$AUTOGLM_DIR${NC}"
@@ -1048,7 +1274,6 @@ uninstall_full() {
   fi
   echo
   
-  # 4. 询问是否删除 autoglm 命令和配置文件
   echo -e "${CYAN}━━━ 第 4 步：autoglm 命令与配置文件 ━━━${NC}"
   echo -e "${YELLOW}包含以下内容：${NC}"
   echo -e "  • autoglm 命令: ${CYAN}$HOME/bin/autoglm${NC}"
@@ -1077,7 +1302,6 @@ uninstall_full() {
   fi
   echo
   
-  # 5. 询问是否删除 pip 镜像配置
   echo -e "${CYAN}━━━ 第 5 步：pip 镜像配置 ━━━${NC}"
   local pip_mirror
   pip_mirror=$(pip config get global.index-url 2>/dev/null || echo "")
@@ -1097,7 +1321,6 @@ uninstall_full() {
   fi
   echo
   
-  # 6. 询问是否删除 Cargo 镜像配置
   echo -e "${CYAN}━━━ 第 6 步：Cargo 镜像配置 ━━━${NC}"
   if [[ -f "$HOME/.cargo/config.toml" ]]; then
     echo -e "${YELLOW}检测到 Cargo 配置：$HOME/.cargo/config.toml${NC}"
@@ -1115,13 +1338,11 @@ uninstall_full() {
   fi
   echo
   
-  # 7. 在 Termux 中询问是否卸载系统包
   if in_termux; then
     echo -e "${CYAN}━━━ 第 7 步：Termux 系统包 ━━━${NC}"
     echo -e "${RED}${BOLD}⚠️  警告：卸载系统包可能影响其他程序！${NC}"
     echo
     
-    # python-pillow
     if pkg list-installed 2>/dev/null | grep -q "python-pillow"; then
       if ask_yes_no "是否卸载 python-pillow？"; then
         pkg uninstall -y python-pillow 2>/dev/null || true
@@ -1130,7 +1351,6 @@ uninstall_full() {
       fi
     fi
     
-    # rust
     if command -v rustc &>/dev/null; then
       if ask_yes_no "是否卸载 Rust 编译工具链（rust, binutils）？"; then
         pkg uninstall -y rust binutils 2>/dev/null || true
@@ -1139,7 +1359,6 @@ uninstall_full() {
       fi
     fi
     
-    # android-tools (ADB)
     if command -v adb &>/dev/null; then
       if ask_yes_no "是否卸载 ADB 工具（android-tools）？"; then
         pkg uninstall -y android-tools 2>/dev/null || true
@@ -1150,7 +1369,6 @@ uninstall_full() {
     echo
   fi
   
-  # 显示结果
   if [[ "$did_something" == true ]]; then
     echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║${NC}              ${BOLD}✅ 卸载操作完成！${NC}                                ${GREEN}║${NC}"
@@ -1163,7 +1381,6 @@ uninstall_full() {
   echo
   read -rp "按回车继续... "
   
-  # 如果删除了 autoglm 命令本身，需要退出
   if [[ ! -f "$HOME/bin/autoglm" ]]; then
     echo -e "${YELLOW}autoglm 命令已删除，即将退出...${NC}"
     exit 0
@@ -1216,7 +1433,7 @@ start_autoglm() {
   
   if [[ "$device_count" -eq 0 ]]; then
     echo
-    echo -e "${RED}[ERROR]${NC} 未检测到 ADB 设备！"
+    echo -e "${RED}[ERROR]${NC} 未检测到在线的 ADB 设备！"
     echo -e "${YELLOW}请先配置 ADB 无线调试（菜单选项 2）${NC}"
     echo
     read -rp "是否现在配置 ADB？(Y/n): " ans
@@ -1309,6 +1526,16 @@ parse_args() {
         switch_adb_device
         exit 0
         ;;
+      --disconnect)
+        load_config
+        disconnect_device
+        exit 0
+        ;;
+      --devices)
+        load_config
+        show_device_list
+        exit 0
+        ;;
       --reconfig)
         load_config
         modify_config
@@ -1324,8 +1551,10 @@ parse_args() {
         echo
         echo -e "${YELLOW}用法:${NC}"
         echo "  autoglm                # 打开交互式菜单"
-        echo "  autoglm --setup-adb    # 配置 ADB"
+        echo "  autoglm --setup-adb    # ADB 设备管理"
+        echo "  autoglm --devices      # 查看设备列表"
         echo "  autoglm --switch-device # 切换 ADB 设备"
+        echo "  autoglm --disconnect   # 断开设备连接"
         echo "  autoglm --reconfig     # 修改配置"
         echo "  autoglm --list-apps    # 查看支持的应用"
         echo "  autoglm --uninstall    # 卸载"
@@ -1356,7 +1585,7 @@ parse_args() {
 main_menu_loop() {
   while true; do
     show_main_menu
-    read -rp "请选择 [0-8]: " choice
+    read -rp "请选择 [0-6]: " choice
     
     case "$choice" in
       1)
@@ -1375,12 +1604,6 @@ main_menu_loop() {
         view_config
         ;;
       6)
-        view_adb_devices
-        ;;
-      7)
-        switch_adb_device
-        ;;
-      8)
         uninstall_menu
         ;;
       0)
@@ -1389,7 +1612,7 @@ main_menu_loop() {
         exit 0
         ;;
       *)
-        echo -e "${RED}无效选择，请输入 0-8${NC}"
+        echo -e "${RED}无效选择，请输入 0-6${NC}"
         sleep 1
         ;;
     esac
@@ -1425,7 +1648,7 @@ LAUNCHER_EOF
 main() {
   echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
   echo -e "${BLUE}║${NC}       ${BOLD}Open-AutoGLM 一键部署脚本 (ADB 纯方案)${NC}              ${BLUE}║${NC}"
-  echo -e "${BLUE}║${NC}       ${CYAN}版本: 4.4.0${NC}                                          ${BLUE}║${NC}"
+  echo -e "${BLUE}║${NC}       ${CYAN}版本: 4.5.0${NC}                                          ${BLUE}║${NC}"
   echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
   echo
   
