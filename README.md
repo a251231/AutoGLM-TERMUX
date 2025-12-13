@@ -1,7 +1,7 @@
 
 AutoGLM-Termux 部署工具
 
-[![版本](https://img.shields.io/badge/版本-4.3.1-brightgreen)](https://github.com/eraycc/AutoGLM-TERMUX)
+[![版本](https://img.shields.io/badge/版本-4.5.0-brightgreen)](https://github.com/eraycc/AutoGLM-TERMUX)
 [![Open-AutoGLM](https://img.shields.io/badge/Open--AutoGLM-最新版-blue)](https://github.com/zai-org/Open-AutoGLM)
 [![Termux](https://img.shields.io/badge/Termux-支持-black)](https://termux.dev/)
 [![License](https://img.shields.io/badge/License-MIT-orange)](https://opensource.org/licenses/MIT)
@@ -68,22 +68,6 @@ chmod +x deploy.sh
 
 # 4. 运行部署脚本
 ./deploy.sh
-```
-
-或带有卸载菜单的beta版本（未测试卸载功能）
-
-```bash
-# 1. 更新 Termux 包列表
-pkg upgrade -y
-
-# 2. 下载部署脚本
-curl -O curl -O https://raw.githubusercontent.com/eraycc/AutoGLM-TERMUX/refs/heads/main/deploybeta.sh
-
-# 3. 授予执行权限
-chmod +x deploybeta.sh
-
-# 4. 运行部署脚本
-./deploybeta.sh
 ```
 
 部署完成后，输入 `autoglm` 即可启动智能控制面板。
@@ -346,11 +330,9 @@ rm -rf ~/Open-AutoGLM
 
 🔄 更新日志
 
-v4.3.1 (当前版本)
-- 修复 setuptools 依赖问题
-- 优化镜像源配置流程
-- 增强 ADB 设备检测稳定性
-- 改进错误提示和引导
+v4.5.0
+- 修复大部分问题
+- 增强体验
 
 v4.3.0
 - 新增交互式启动面板 `autoglm` 命令
