@@ -220,7 +220,7 @@ autoglm
 
 # 示例 2：直接执行指令
 autoglm --base-url https://open.bigmodel.cn/api/paas/v4 \
-        --model autoglm-phone \
+        --model autoglm-4.5.0 \
         --apikey sk-xxxxx \
         "打开微信发送消息给文件传输助手：Hello World"
 ```
@@ -240,12 +240,12 @@ autoglm --base-url https://open.bigmodel.cn/api/paas/v4 \
 `PHONE_AGENT_DEVICE_ID`	ADB 设备 ID	自动检测	
 `PHONE_AGENT_LANG`	语言	`cn`	
 
-自定义AI模型服务（AI模型需要支持图像识别能力）
+支持的模型服务（AI模型需要图像识别能力）
 
 1. 智谱 BigModel（推荐，目前官方autoglm-phone模型可免费使用）
 - Base URL: `https://open.bigmodel.cn/api/paas/v4`
 - 模型: `autoglm-phone`
-- 申请地址: [BigModel 控制台](https://open.bigmodel.cn/)
+- 申请地址: [BigModel AFF](https://www.bigmodel.cn/claude-code?ic=COJZ8EMHXZ)
 
 2. ModelScope 魔搭社区
 - Base URL: `https://api-inference.modelscope.cn/v1`
