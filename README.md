@@ -77,13 +77,13 @@ chmod +x deploy.sh
 pkg upgrade -y
 
 # 2. 下载部署脚本
-curl -O curl -O https://github.com/eraycc/AutoGLM-TERMUX/raw/refs/heads/main/deploy-beta.sh
+curl -O curl -O https://raw.githubusercontent.com/eraycc/AutoGLM-TERMUX/refs/heads/main/deploybeta.sh
 
 # 3. 授予执行权限
-chmod +x deploy-beta.sh
+chmod +x deploybeta.sh
 
 # 4. 运行部署脚本
-./deploy-beta.sh
+./deploybeta.sh
 ```
 
 部署完成后，输入 `autoglm` 即可启动智能控制面板。
