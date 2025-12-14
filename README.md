@@ -37,6 +37,29 @@ AutoGLM-Termux 是一个专为 Termux 环境优化的 Open-AutoGLM 一键部署�
 
 ---
 
+🍭 部署演示
+
+![1000114284](https://github.com/user-attachments/assets/d4e89a3c-8d39-41a8-a44e-bed00c74fdb0)
+
+![1000114273](https://github.com/user-attachments/assets/3ca780ce-631c-4ae3-996a-8f3bf4eb4037)
+
+![1000114283](https://github.com/user-attachments/assets/dd618ffc-4138-4bcf-bf0a-03562b364875)
+
+---
+
+📱 前置要求
+
+1. 安卓手机（Android 7.0+）
+2. Termux 已安装（[下载地址](https://github.com/termux/termux-app/releases/)）
+3. 网络连接：手机和 Termux 设备需在同一 WiFi 网络下
+4. API Key：需要智谱 AI 或 ModelScope 的 API Key 或 其他支持图片识别的AI模型
+5. ADB Keyboard（必须）：
+   - 下载地址：https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk
+   - 安装后，进入 设置 → 系统 → 语言和输入法 → 虚拟键盘 → 管理键盘，启用 "ADB Keyboard"
+   - 这是必须步骤，否则无法输入中文
+
+---
+
 🚀 快速开始（推荐）
 
 在 Termux 中执行以下命令，一键完成部署：
@@ -59,32 +82,53 @@ chmod +x deploy.sh
 
 ---
 
-📱 前置要求
+📋 详细部署步骤
 
-1. 安卓手机（Android 7.0+）
-2. Termux 已安装（[下载地址](https://github.com/termux/termux-app/releases/)）
-3. 网络连接：手机和 Termux 设备需在同一 WiFi 网络下
-4. API Key：需要智谱 AI 或 ModelScope 的 API Key 或 其他支持图片识别的AI模型
+如果需要更详细的安装指导，请按照以下步骤操作：
 
----
+步骤 1：安装 Termux
 
-🔧 ADB Keyboard 安装指南
+从 [GitHub Releases](https://github.com/termux/termux-app/releases/) 下载最新版 Termux APK 并安装。
 
-这是必须步骤，否则无法输入中文！
+步骤 2：更新 Termux
 
-下载安装包
+首次启动 Termux 后，执行：
 
-```
-https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk
+```bash
+pkg upgrade -y
 ```
 
-安装步骤
-1. 下载 APK 文件到手机
-2. 点击安装（可能需要在设置中允许"安装未知应用"）
-3. 进入 设置 → 系统 → 语言和输入法 → 虚拟键盘 → 管理键盘
-4. 启用 "ADB Keyboard"（可保持当前输入法不变）
-5. 提示：运行 AutoGLM 时，Agent 会自动切换输入法，但需要启用
-6. 返回 Termux 继续配置
+步骤 3：设置 termux pkg 下载加速源
+
+执行下面的命令打开 termux 的 pkg 加速源设置 GUI：
+- 选择 `Mirror group - Rotate between several mirrors (recommended)`
+- 点击 OK 进入，通过上下箭头切换到 `Mirrors in Chinese Mainland - All in Chinese Mainland`
+- 再次点击 OK，等待自动配置完成即可
+
+```bash
+termux-change-repo
+```
+
+步骤 4：运行部署脚本
+
+```bash
+curl -O https://raw.githubusercontent.com/eraycc/AutoGLM-TERMUX/refs/heads/main/deploy.sh
+chmod +x deploy.sh
+./deploy.sh
+```
+
+步骤 5：脚本执行流程
+
+脚本将自动完成以下操作：
+
+1. 安装依赖：Python、pip、Git、Rust、ADB（支持自动检测多种包管理器）
+2. 配置镜像源：可选配置国内 pip/Cargo 镜像加速（输入 `default` 使用推荐源）
+3. 安装 Python 包：maturin、openai、requests、Pillow（Termux 环境通过 pkg 安装 Pillow）
+4. 克隆项目：从 GitHub 拉取 Open-AutoGLM 最新代码
+5. 交互式配置：设置 API Key、模型参数等（新增设备 ID 配置）
+6. ADB Keyboard 提醒：提示安装必需的输入法工具（必须步骤）
+7. ADB 无线配置：引导完成手机无线调试连接（支持自动检测已连接设备）
+8. 创建启动器：生成 `autoglm` 快捷命令并自动加入 PATH
 
 ---
 
@@ -154,6 +198,28 @@ autoglm --base-url URL --model MODEL --apikey KEY --device-id ID "你的指令"
 autoglm --help
 ```
 
+使用示例
+
+```bash
+# 示例 1：打开美团搜索火锅
+autoglm
+# 然后在交互界面输入：打开美团搜索附近的火锅店
+
+# 示例 2：直接执行指令
+autoglm --base-url https://open.bigmodel.cn/api/paas/v4 \
+        --model autoglm-4.5.0 \
+        --apikey sk-xxxxx \
+        "打开微信发送消息给文件传输助手：Hello World"
+
+# 示例 3：多设备环境下切换到指定设备
+autoglm --switch-device
+# 或命令行直接指定
+autoglm --device-id 192.168.1.100:5555 "打开B站"
+
+# 示例 4：快速查看所有设备状态
+autoglm --devices
+```
+
 ---
 
 🎯 进阶玩法：自定义扩展应用支持
@@ -211,6 +277,55 @@ autoglm --help
 - 确保包名准确无误，否则无法打开应用
 - 修改前建议备份原始文件
 - 部分应用可能需要额外配置才能完全自动化
+
+---
+
+⚙️ 配置说明
+
+环境变量
+部署完成后，配置保存在 `~/.autoglm/config.sh`，包含：
+
+变量名	说明	默认值	
+`PHONE_AGENT_BASE_URL`	API 基础地址	`https://open.bigmodel.cn/api/paas/v4`	
+`PHONE_AGENT_MODEL`	模型名称	`autoglm-phone`	
+`PHONE_AGENT_API_KEY`	你的 API Key	`sk-your-apikey`	
+`PHONE_AGENT_MAX_STEPS`	最大执行步数	`100`	
+`PHONE_AGENT_DEVICE_ID`	ADB 设备 ID（新增）	自动检测（留空）	
+`PHONE_AGENT_LANG`	语言	`cn`	
+
+新增说明：
+- `PHONE_AGENT_DEVICE_ID`: 在多设备环境下指定要控制的设备，格式为 `IP:端口` 或设备序列号。留空时自动检测唯一在线设备。
+
+支持的模型服务（AI模型需要图像识别能力）
+
+1. 智谱 BigModel（推荐，目前官方autoglm-phone模型可免费使用）
+   - Base URL: `https://open.bigmodel.cn/api/paas/v4`
+   - 模型: `autoglm-phone`
+   - 申请地址: [BigModel AFF](https://www.bigmodel.cn/claude-code?ic=COJZ8EMHXZ)
+
+2. ModelScope 魔搭社区
+   - Base URL: `https://api-inference.modelscope.cn/v1`
+   - 模型: `ZhipuAI/AutoGLM-Phone-9B`
+   - 申请地址: [ModelScope 平台](https://modelscope.cn/)
+
+3. 其他自定义 AI API
+   - 支持 OpenAI 兼容格式的 API 接口
+   - 需确保模型具备图像理解能力
+
+---
+
+📦 项目结构
+
+```
+~/
+├── Open-AutoGLM/                 # 项目代码
+├── .autoglm/
+│   └── config.sh                # 配置文件
+├── bin/
+│   └── autoglm                  # 启动脚本（自动加入 PATH）
+└── .cargo/
+    └── config.toml              # Cargo 镜像配置
+```
 
 ---
 
