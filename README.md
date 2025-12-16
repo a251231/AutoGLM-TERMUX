@@ -1,9 +1,11 @@
 AutoGLM-Termux 部署工具
 
-[![版本](https://img.shields.io/badge/版本-4.5.0-brightgreen)](https://github.com/eraycc/AutoGLM-TERMUX)
+[![版本](https://img.shields.io/badge/版本-4.6.0-brightgreen)](https://github.com/eraycc/AutoGLM-TERMUX)
 [![Open-AutoGLM](https://img.shields.io/badge/Open--AutoGLM-最新版-blue)](https://github.com/zai-org/Open-AutoGLM)
 [![Termux](https://img.shields.io/badge/Termux-支持-black)](https://termux.dev/)
 [![License](https://img.shields.io/badge/License-MIT-orange)](https://opensource.org/licenses/MIT)
+
+[🌐 切换到英文文档 / Switch to English Documentation](https://github.com/eraycc/AutoGLM-TERMUX/blob/main/README_en.md)
 
 在安卓手机上通过 Termux 快速部署 Open-AutoGLM 智能体，无需ROOT或电脑等其他设备，即可实现手机自动化操作！
 
@@ -18,6 +20,7 @@ AutoGLM-Termux 是一个专为 Termux 环境优化的 Open-AutoGLM 一键部署�
 - 增强 ADB 设备管理：支持多设备切换、快速连接、设备状态监控
 - 一键卸载功能：完整卸载项目及运行环境
 - 完全无线控制，无需 Root
+- 新增：全面国际化支持，支持中英文切换
 
 > ⚠️ 合规声明：本项目仅供学习和研究使用，严禁用于任何违法活动。请遵守 [Open-AutoGLM 使用条款](https://github.com/zai-org/Open-AutoGLM/blob/main/resources/privacy_policy.txt)。
 
@@ -34,6 +37,7 @@ AutoGLM-Termux 是一个专为 Termux 环境优化的 Open-AutoGLM 一键部署�
 - 配置持久化：环境变量自动保存，重启 Termux 无需重新配置
 - 多设备支持：同一局域网内，关闭VPN的情况下，可用安卓设备使用无线调试连接其他手机adb实现自动控制其他安卓手机设备，支持管理多个 ADB 设备
 - 一键卸载：提供基本卸载和完全卸载两种模式，干净清理不残留
+- 新增：多语言支持，可在中文和英文之间自由切换
 
 ---
 
@@ -121,14 +125,15 @@ chmod +x deploy.sh
 
 脚本将自动完成以下操作：
 
-1. 安装依赖：Python、pip、Git、Rust、ADB（支持自动检测多种包管理器）
-2. 配置镜像源：可选配置国内 pip/Cargo 镜像加速（输入 `default` 使用推荐源）
-3. 安装 Python 包：maturin、openai、requests、Pillow（Termux 环境通过 pkg 安装 Pillow）
-4. 克隆项目：从 GitHub 拉取 Open-AutoGLM 最新代码
-5. 交互式配置：设置 API Key、模型参数等（新增设备 ID 配置）
-6. ADB Keyboard 提醒：提示安装必需的输入法工具（必须步骤）
-7. ADB 无线配置：引导完成手机无线调试连接（支持自动检测已连接设备）
-8. 创建启动器：生成 `autoglm` 快捷命令并自动加入 PATH
+1. 语言选择：首次运行时会提示选择中文或英文界面
+2. 安装依赖：Python、pip、Git、Rust、ADB（支持自动检测多种包管理器）
+3. 配置镜像源：可选配置国内 pip/Cargo 镜像加速（输入 `default` 使用推荐源）
+4. 安装 Python 包：maturin、openai、requests、Pillow（Termux 环境通过 pkg 安装 Pillow）
+5. 克隆项目：从 GitHub 拉取 Open-AutoGLM 最新代码
+6. 交互式配置：设置 API Key、模型参数等（新增设备 ID 配置）
+7. ADB Keyboard 提醒：提示安装必需的输入法工具（必须步骤）
+8. ADB 无线配置：引导完成手机无线调试连接（支持自动检测已连接设备）
+9. 创建启动器：生成 `autoglm` 快捷命令并自动加入 PATH
 
 ---
 
@@ -148,7 +153,8 @@ autoglm
 3. ⚙️  修改 AI 配置       # 修改 API Key、模型等
 4. 📋 查看支持的应用列表  # 显示支持的 50+ 款 App
 5. 🔍 查看详细配置        # 显示当前所有配置信息
-6. 🗑️  一键卸载           # 进入卸载菜单
+6. 🌐 切换语言 / Switch Language  # 中英文界面切换
+7. 🗑️  一键卸载           # 进入卸载菜单
 0. ❌ 退出               # 退出程序
 ```
 
@@ -191,6 +197,10 @@ autoglm --list-apps
 # 一键卸载（进入卸载菜单）
 autoglm --uninstall
 
+# 切换语言
+autoglm --lang cn    # 切换到中文
+autoglm --lang en    # 切换到英文
+
 # 手动指定参数启动
 autoglm --base-url URL --model MODEL --apikey KEY --device-id ID "你的指令"
 
@@ -207,7 +217,7 @@ autoglm
 
 # 示例 2：直接执行指令
 autoglm --base-url https://open.bigmodel.cn/api/paas/v4 \
-        --model autoglm-4.5.0 \
+        --model autoglm-4.6.0 \
         --apikey sk-xxxxx \
         "打开微信发送消息给文件传输助手：Hello World"
 
@@ -218,6 +228,9 @@ autoglm --device-id 192.168.1.100:5555 "打开B站"
 
 # 示例 4：快速查看所有设备状态
 autoglm --devices
+
+# 示例 5：切换语言到英文
+autoglm --lang en
 ```
 
 ---
@@ -295,6 +308,7 @@ autoglm --devices
 
 新增说明：
 - `PHONE_AGENT_DEVICE_ID`: 在多设备环境下指定要控制的设备，格式为 `IP:端口` 或设备序列号。留空时自动检测唯一在线设备。
+- `PHONE_AGENT_LANG`: 界面语言设置，支持 `cn`（中文）和 `en`（英文）
 
 支持的模型服务（AI模型需要图像识别能力）
 
@@ -399,7 +413,7 @@ autoglm --uninstall
    - 或在配置中指定 `PHONE_AGENT_DEVICE_ID="IP:端口"`
 
 6. 环境变量未生效
-   
+
 ```bash
    # 手动加载配置
    source ~/.bashrc
@@ -409,21 +423,30 @@ autoglm --uninstall
 
 7. 卸载后 autoglm 命令仍可用
    - 重新打开终端窗口
+   - 或手动执行 `source ~/.bashrc` 重载配置
    - 或手动执行 `hash -r` 刷新命令缓存
 
 8. 更新失败
-   
+
 ```bash
    # 手动删除旧目录后重试
    rm -rf ~/Open-AutoGLM
    ./deploy.sh
    ```
 
+9. 语言切换问题
+   - 使用 `autoglm --lang cn` 或 `autoglm --lang en` 切换语言
+   - 或在主菜单中选择"切换语言"选项
+
 ---
 
 🔄 更新日志
 
-v4.5.0 (当前版本)
+v4.6.0 (当前版本)
+- 新增：全面国际化支持，支持中英文界面切换
+- 新增：语言选择向导，部署时即可选择语言
+
+v4.5.0
 - 增强 ADB 设备管理：支持设备列表查看、切换、断开、快速连接
 - 新增一键卸载功能：提供基本卸载和完全卸载两种模式
 - 改进多设备支持：可指定设备 ID，自动检测在线设备
