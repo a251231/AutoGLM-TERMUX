@@ -61,6 +61,8 @@ AutoGLM-Termux is a one-click deployment solution for Open-AutoGLM, optimized fo
    - Download: https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk
    - After install: Settings → System → Languages & input → Virtual keyboard → Manage keyboards → enable “ADB Keyboard”
    - Required—otherwise Chinese input fails
+   
+> Older versions of Android, such as Android 7 and below, if the ADB Keyboard cannot be installed, You can try to install this version of ADB Keyboard: https://github.com/eraycc/AutoGLM-TERMUX/blob/main/ADBKeyboard/ADBKeyboard.apk
 
 ---
 
@@ -428,6 +430,10 @@ Follow the interactive menu.
 9. Language switch  
    - `autoglm --lang cn` / `autoglm --lang en`  
    - Or use main-menu option
+
+10. ADB Keyboard has been installed, but reports an error upon startup
+   - Ensure that ADB Keyboard is installed and enabled
+   - If ADB wireless debugging is paired with multiple devices and ADB Keyboard reports an error when switching to other devices for startup, try restarting Termux and reconnecting, or enter the ADB management menu to disconnect all connections, restart ADB, and then start AutoGLM again after reconnecting.
 
 ---
 
