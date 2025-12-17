@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Open-AutoGLM Termux 纯 ADB 方案 - 一键部署脚本
-# 版本: 5.0.0 (新增语音识别功能)
+# 版本: 5.0.1 (修复语音识别和快速启动问题)
 set -euo pipefail
 
 ##########  基础工具  ##########
@@ -16,8 +16,8 @@ init_i18n() {
   # 部署脚本文本
   I18N["deploy_title_cn"]="Open-AutoGLM 一键部署脚本 (ADB 纯方案)"
   I18N["deploy_title_en"]="Open-AutoGLM One-Click Deploy Script (ADB Only)"
-  I18N["deploy_version_cn"]="版本: 5.0.0"
-  I18N["deploy_version_en"]="Version: 5.0.0"
+  I18N["deploy_version_cn"]="版本: 5.0.1"
+  I18N["deploy_version_en"]="Version: 5.0.1"
   
   I18N["checking_deps_cn"]="检查并安装基础依赖..."
   I18N["checking_deps_en"]="Checking and installing dependencies..."
@@ -222,8 +222,10 @@ init_i18n() {
   I18N["voice_termux_api_step3_en"]="Go to permissions, set microphone permission to allow"
   I18N["voice_termux_api_step4_cn"]="打开 Termux:API 应用，放在后台运行"
   I18N["voice_termux_api_step4_en"]="Open Termux:API app and keep it running in background"
-  I18N["voice_termux_api_confirm_cn"]="是否已安装 Termux:API 并授予麦克风权限？（输入 y/Y/yes 继续）"
-  I18N["voice_termux_api_confirm_en"]="Have you installed Termux:API and granted microphone permission? (Enter y/Y/yes to continue)"
+  I18N["voice_termux_api_confirm_cn"]="是否已安装 Termux:API 并授予麦克风权限？（输入 y/Y/yes 继续，输入 exit/stop/quit/skip 跳过）"
+  I18N["voice_termux_api_confirm_en"]="Have you installed Termux:API and granted microphone permission? (Enter y/Y/yes to continue, exit/stop/quit/skip to skip)"
+  I18N["voice_termux_api_confirm_hint_cn"]="请输入 y/Y/yes 继续，或输入 exit/stop/quit/skip 跳过安装"
+  I18N["voice_termux_api_confirm_hint_en"]="Please enter y/Y/yes to continue, or exit/stop/quit/skip to skip"
   I18N["voice_installing_api_cn"]="安装 termux-api 包..."
   I18N["voice_installing_api_en"]="Installing termux-api package..."
   I18N["voice_config_title_cn"]="配置 AI 语音识别参数"
@@ -238,8 +240,10 @@ init_i18n() {
   I18N["voice_config_max_duration_en"]="Max Recording Duration (seconds)"
   I18N["voice_module_installed_cn"]="语音识别模块安装完成！"
   I18N["voice_module_installed_en"]="Voice recognition module installed!"
-  I18N["voice_not_termux_cn"]="语音识别功能仅支持 Termux 环境"
+  I18N["voice_not_termux_cn"]="语音识别功能仅支持 Termux 环境，需要在 Termux 中运行才能安装"
   I18N["voice_not_termux_en"]="Voice recognition is only supported in Termux environment"
+  I18N["voice_not_termux_hint_cn"]="按回车跳过语音识别模块安装..."
+  I18N["voice_not_termux_hint_en"]="Press Enter to skip voice recognition module installation..."
   
   # 部署完成
   I18N["deploy_complete_cn"]="部署完成！"
@@ -651,6 +655,7 @@ install_voice_module() {
   # 检查是否在 Termux 环境
   if ! in_termux; then
     log_warn "$(i18n voice_not_termux)"
+    read -rp "$(i18n voice_not_termux_hint) "
     return 0
   fi
   
@@ -680,15 +685,27 @@ install_voice_module() {
   echo -e "  ${GREEN}4.${NC} $(i18n voice_termux_api_step4)"
   echo
   
-  read -rp "$(i18n voice_termux_api_confirm): " api_confirm
-  case "$api_confirm" in
-    [Yy]|[Yy][Ee][Ss])
-      ;;
-    *)
-      log_info "$(i18n voice_skip)"
-      return 0
-      ;;
-  esac
+  # 循环询问直到用户输入有效选项
+  while true; do
+    read -rp "$(i18n voice_termux_api_confirm): " api_confirm
+    case "$api_confirm" in
+      [Yy]|[Yy][Ee][Ss])
+        break
+        ;;
+      exit|EXIT|stop|STOP|quit|QUIT|skip|SKIP)
+        log_info "$(i18n voice_skip)"
+        return 0
+        ;;
+      "")
+        # 空输入（回车），继续提示
+        echo -e "${YELLOW}$(i18n voice_termux_api_confirm_hint)${NC}"
+        ;;
+      *)
+        # 其他输入，继续提示
+        echo -e "${YELLOW}$(i18n voice_termux_api_confirm_hint)${NC}"
+        ;;
+    esac
+  done
   
   # 第2步：安装 termux-api
   echo
@@ -738,7 +755,7 @@ make_launcher() {
   cat > ~/bin/autoglm <<'LAUNCHER_EOF'
 #!/bin/bash
 # AutoGLM Smart Control Panel
-# Version: 5.0.0 (Voice Recognition Support)
+# Version: 5.0.1 (Fixed Voice Recognition and Quick Start)
 
 ##########  颜色定义  ##########
 RED='\033[0;31m'
@@ -873,6 +890,12 @@ init_i18n() {
   I18N["voice_duration_en"]="Max Duration (seconds)"
   I18N["voice_config_saved_cn"]="语音识别配置已保存"
   I18N["voice_config_saved_en"]="Voice recognition config saved"
+  I18N["voice_file_not_found_cn"]="录音文件未找到"
+  I18N["voice_file_not_found_en"]="Recording file not found"
+  I18N["voice_file_deleted_cn"]="已删除录音缓存文件"
+  I18N["voice_file_deleted_en"]="Recording cache file deleted"
+  I18N["voice_network_error_cn"]="网络请求失败，请检查网络连接"
+  I18N["voice_network_error_en"]="Network request failed, please check connection"
   
   # ADB Keyboard
   I18N["adb_keyboard_title_cn"]="⚠️  重要提醒：安装 ADB Keyboard"
@@ -1298,6 +1321,8 @@ init_i18n() {
   I18N["help_uninstall_en"]="Uninstall"
   I18N["help_voice_cn"]="启动语音识别模式"
   I18N["help_voice_en"]="Start voice recognition mode"
+  I18N["help_quick_start_cn"]="快速启动（交互模式）"
+  I18N["help_quick_start_en"]="Quick start (interactive mode)"
   I18N["help_single_task_cn"]="执行单次任务"
   I18N["help_single_task_en"]="Execute single task"
   I18N["help_params_cn"]="参数:"
@@ -1847,7 +1872,6 @@ disconnect_device() {
           echo -e "${BLUE}[INFO]${NC} $(i18n disconnecting): $selected_device"
           adb disconnect "$selected_device" 2>&1
           echo -e "${GREEN}[SUCC]${NC} $(i18n disconnected): $selected_device"
-          
           if [[ "$selected_device" == "${PHONE_AGENT_DEVICE_ID:-}" ]]; then
             PHONE_AGENT_DEVICE_ID=""
             save_config
@@ -2140,21 +2164,44 @@ ask_yes_no() {
   fi
 }
 
+##########  删除录音缓存文件  ##########
+cleanup_audio_file() {
+  local audio_file="$1"
+  if [[ -f "$audio_file" ]]; then
+    rm -f "$audio_file" 2>/dev/null || true
+    echo -e "${BLUE}[INFO]${NC} $(i18n voice_file_deleted): $audio_file"
+  fi
+}
+
 ##########  语音转文字  ##########
 transcribe_audio() {
   local audio_file="$1"
   local api_url="${VOICE_API_BASE_URL}/audio/transcriptions"
   
-  echo -e "${BLUE}[INFO]${NC} $(i18n voice_transcribing)"
+  # 检查文件是否存在
+  if [[ ! -f "$audio_file" ]]; then
+    echo ""
+    return 1
+  fi
   
   local response
-  response=$(curl -s -w "\n%{http_code}" -X POST "$api_url" \
+  local http_code
+  
+  # 尝试发送请求
+  response=$(curl -s -w "\n%{http_code}" --connect-timeout 10 --max-time 60 -X POST "$api_url" \
     -H "Authorization: Bearer $VOICE_API_KEY" \
     -H "Content-Type: multipart/form-data" \
     -F "file=@$audio_file" \
     -F "model=$VOICE_API_MODEL" 2>&1)
   
-  local http_code
+  local curl_exit_code=$?
+  
+  # 检查 curl 是否成功执行
+  if [[ $curl_exit_code -ne 0 ]]; then
+    echo ""
+    return 2  # 网络错误
+  fi
+  
   http_code=$(echo "$response" | tail -n1)
   local body
   body=$(echo "$response" | sed '$d')
@@ -2166,13 +2213,11 @@ transcribe_audio() {
       echo "$text"
       return 0
     else
-      echo -e "${RED}[ERROR]${NC} $(i18n voice_transcribe_fail): Empty response"
+      echo ""
       return 1
     fi
   else
-    local error_msg
-    error_msg=$(echo "$body" | grep -oP '"message"\s*:\s*"\K[^"]+' || echo "$body")
-    echo -e "${RED}[ERROR]${NC} $(i18n voice_transcribe_fail): $error_msg"
+    echo ""
     return 1
   fi
 }
@@ -2250,7 +2295,8 @@ voice_recognition_mode() {
             # 取消录音
             termux-microphone-record -q 2>/dev/null || true
             kill $record_pid 2>/dev/null || true
-            rm -f "$audio_file" 2>/dev/null || true
+            # 删除录音缓存文件
+            cleanup_audio_file "$audio_file"
             echo -e "${YELLOW}[INFO]${NC} $(i18n voice_cancelled)"
             continue
             ;;
@@ -2265,19 +2311,26 @@ voice_recognition_mode() {
         
         # 检查录音文件是否存在
         if [[ ! -f "$audio_file" ]]; then
-          echo -e "${RED}[ERROR]${NC} Recording file not found"
+          echo -e "${RED}[ERROR]${NC} $(i18n voice_file_not_found)"
           continue
         fi
         
-        # 语音转文字
+        # 语音转文字 - 先显示正在转换提示
+        echo -e "${BLUE}[INFO]${NC} $(i18n voice_transcribing)"
+        
         local task_text
         task_text=$(transcribe_audio "$audio_file")
         local transcribe_result=$?
         
-        # 删除临时录音文件
-        rm -f "$audio_file" 2>/dev/null || true
+        # 无论成功还是失败，都删除临时录音文件
+        cleanup_audio_file "$audio_file"
         
-        if [[ $transcribe_result -ne 0 ]]; then
+        # 检查转写结果
+        if [[ $transcribe_result -eq 2 ]]; then
+          echo -e "${RED}[ERROR]${NC} $(i18n voice_network_error)"
+          continue
+        elif [[ $transcribe_result -ne 0 ]] || [[ -z "$task_text" ]]; then
+          echo -e "${RED}[ERROR]${NC} $(i18n voice_transcribe_fail)"
           continue
         fi
         
@@ -2777,6 +2830,7 @@ start_single_task() {
 ##########  解析命令行参数  ##########
 parse_args() {
   local SINGLE_TASK=""
+  local QUICK_START=false
   
   while [[ $# -gt 0 ]]; do
     case $1 in
@@ -2846,13 +2900,15 @@ parse_args() {
         exit $?
         ;;
       -s|--start)
+        # 检查是否有后续参数且不是以 - 开头
         if [[ -n "${2:-}" && ! "$2" =~ ^- ]]; then
+          # 有任务描述参数，单次任务模式
           SINGLE_TASK="$2"
           shift 2
         else
-          echo -e "${RED}[ERROR]${NC} $(i18n empty_input)"
-          echo "Usage: autoglm -s \"your task description\""
-          exit 1
+          # 无任务描述参数，快速启动交互模式
+          QUICK_START=true
+          shift 1
         fi
         ;;
       --help|-h)
@@ -2860,6 +2916,8 @@ parse_args() {
         echo
         echo -e "${YELLOW}$(i18n help_usage)${NC}"
         echo "  autoglm                     # $(i18n help_menu)"
+        echo "  autoglm -s                  # $(i18n help_quick_start)"
+        echo "  autoglm --start             # $(i18n help_quick_start)"
         echo "  autoglm -s \"task\"           # $(i18n help_single_task)"
         echo "  autoglm --start \"task\"      # $(i18n help_single_task)"
         echo "  autoglm --voice             # $(i18n help_voice)"
@@ -2887,6 +2945,12 @@ parse_args() {
         ;;
     esac
   done
+  
+  # 如果是快速启动模式（无参数的 -s 或 --start）
+  if [[ "$QUICK_START" == true ]]; then
+    start_autoglm
+    exit $?
+  fi
   
   # 如果有单次任务参数，执行单次任务
   if [[ -n "$SINGLE_TASK" ]]; then
@@ -2989,11 +3053,6 @@ main_menu_loop() {
 main() {
   load_config
   parse_args "$@"
-  
-  if [[ "${DIRECT_START:-false}" == true ]]; then
-    start_autoglm
-    exit $?
-  fi
   
   main_menu_loop
 }
