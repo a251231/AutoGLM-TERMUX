@@ -1,6 +1,6 @@
 AutoGLM-Termux 部署工具
 
-[![版本](https://img.shields.io/badge/版本-4.6.0-brightgreen)](https://github.com/eraycc/AutoGLM-TERMUX)
+[![版本](https://img.shields.io/badge/版本-5.0.1-brightgreen)](https://github.com/eraycc/AutoGLM-TERMUX)
 [![Open-AutoGLM](https://img.shields.io/badge/Open--AutoGLM-最新版-blue)](https://github.com/zai-org/Open-AutoGLM)
 [![Termux](https://img.shields.io/badge/Termux-支持-black)](https://termux.dev/)
 [![License](https://img.shields.io/badge/License-MIT-orange)](https://opensource.org/licenses/MIT)
@@ -19,8 +19,9 @@ AutoGLM-Termux 是一个专为 Termux 环境优化的 Open-AutoGLM 一键部署�
 - 支持 50+ 款主流中文 App
 - 增强 ADB 设备管理：支持多设备切换、快速连接、设备状态监控
 - 一键卸载功能：完整卸载项目及运行环境
-- 完全无线控制，无需 Root
-- 新增：全面国际化支持，支持中英文切换
+- 完全无线控制，无需 Root 或PC等其他设备
+- 全面国际化支持，支持中英文切换
+- 新增：**支持语音识别输入**，可通过语音控制手机
 
 > ⚠️ 合规声明：本项目仅供学习和研究使用，严禁用于任何违法活动。请遵守 [Open-AutoGLM 使用条款](https://github.com/zai-org/Open-AutoGLM/blob/main/resources/privacy_policy.txt)。
 
@@ -31,6 +32,7 @@ AutoGLM-Termux 是一个专为 Termux 环境优化的 Open-AutoGLM 一键部署�
 - 一键部署：自动化安装所有依赖和环境配置
 - 智能镜像：自动配置国内 pip 和 Cargo 镜像源，加速下载（支持输入 `default` 使用推荐源）
 - 无线 ADB：内置 ADB 无线调试配置向导，告别数据线
+- 语音识别：支持语音输入指令，解放双手（需要安装 Termux:API）
 - ADB 设备管理：可视化设备列表、切换活动设备、断开连接、快速重连
 - 交互式菜单：可视化启动面板，管理配置更轻松
 - 自动重连：支持 ADB 设备自动检测和连接
@@ -57,17 +59,25 @@ AutoGLM-Termux 是一个专为 Termux 环境优化的 Open-AutoGLM 一键部署�
 2. Termux 已安装（[下载地址](https://github.com/termux/termux-app/releases/)）
 3. 网络连接：手机和 Termux 设备需在同一 WiFi 网络下
 4. API Key：需要智谱 AI 或 ModelScope 的 API Key 或 其他支持图片识别的AI模型
-5. ADB Keyboard（必须）：
+
+5. 语音识别（可选）：如需语音控制功能，需安装 Termux:API 应用
+   - 下载地址：https://github.com/termux/termux-api/releases/
+   - 安装后，在 设置-应用管理 内或桌面长按 Termux:API 图标，进入应用权限管理界面，授予麦克风权限
+
+> 旧版本安卓系统或无法安装上述Termux:API APK，可阅读官方文档：[Termux-microphone-record](https://wiki.termux.com/wiki/Termux-microphone-record) ， [Termux:API](https://wiki.termux.com/wiki/Termux:API)，在[f-droid](https://f-droid.org/packages/com.termux.api/)上尝试下载可用版本
+
+6. ADB Keyboard（必须）：
    - 下载地址：https://github.com/senzhk/ADBKeyBoard/blob/master/ADBKeyboard.apk
    - 安装后，进入 设置 → 系统 → 语言和输入法 → 虚拟键盘 → 管理键盘，启用 "ADB Keyboard"
    - 这是必须步骤，否则无法输入中文
+
 > 旧版本安卓系统，如安卓7及其以下，如果无法安装上述ADB Keyboard，可以尝试安装此版本ADB Keyboard：https://github.com/eraycc/AutoGLM-TERMUX/blob/main/ADBKeyboard/ADBKeyboard.apk
 
 ---
 
 🚀 快速开始（推荐）
 
-在 Termux 中执行以下命令，一键完成部署：
+在 Termux 中执行以下命令，一键完成部署或更新：
 
 ```bash
 # 1. 更新 Termux 包列表
@@ -131,10 +141,11 @@ chmod +x deploy.sh
 3. 配置镜像源：可选配置国内 pip/Cargo 镜像加速（输入 `default` 使用推荐源）
 4. 安装 Python 包：maturin、openai、requests、Pillow（Termux 环境通过 pkg 安装 Pillow）
 5. 克隆项目：从 GitHub 拉取 Open-AutoGLM 最新代码
-6. 交互式配置：设置 API Key、模型参数等（新增设备 ID 配置）
-7. ADB Keyboard 提醒：提示安装必需的输入法工具（必须步骤）
-8. ADB 无线配置：引导完成手机无线调试连接（支持自动检测已连接设备）
-9. 创建启动器：生成 `autoglm` 快捷命令并自动加入 PATH
+6. 语音识别配置：可选择是否启用语音控制功能
+7. 交互式配置：设置 API Key、模型参数等（新增设备 ID 配置）
+8. ADB Keyboard 提醒：提示安装必需的输入法工具（必须步骤）
+9. ADB 无线配置：引导完成手机无线调试连接（支持自动检测已连接设备）
+10. 创建启动器：生成 `autoglm` 快捷命令并自动加入 PATH
 
 ---
 
@@ -150,12 +161,14 @@ autoglm
 
 ```
 1. 🚀 使用当前配置启动    # 直接运行 AutoGLM（自动检测设备）
-2. 📱 ADB 设备管理       # 进入增强的设备管理子菜单
-3. ⚙️  修改 AI 配置       # 修改 API Key、模型等
-4. 📋 查看支持的应用列表  # 显示支持的 50+ 款 App
-5. 🔍 查看详细配置        # 显示当前所有配置信息
-6. 🌐 切换语言 / Switch Language  # 中英文界面切换
-7. 🗑️  一键卸载           # 进入卸载菜单
+2. 🎤 使用语音识别启动    # 语音输入指令控制手机（需启用语音功能）
+3. 📱 ADB 设备管理       # 进入增强的设备管理子菜单
+4. ⚙️  修改 AI 配置       # 修改 API Key、模型等
+5. 🎙️ 修改语音识别配置   # 修改语音识别参数
+6. 📋 查看支持的应用列表  # 显示支持的 50+ 款 App
+7. 🔍 查看详细配置        # 显示当前所有配置信息
+8. 🌐 切换语言 / Switch Language  # 中英文界面切换
+9. 🗑️ 一键卸载           # 进入卸载菜单
 0. ❌ 退出               # 退出程序
 ```
 
@@ -168,14 +181,17 @@ ADB 设备管理子菜单
 4. 🔄 切换活动设备
 5. 🔌 断开设备连接
 6. ❓ ADB Keyboard 安装说明
-0. ↩️  返回主菜单
+0. ↩️ 返回主菜单
 ```
 
 命令行参数
 
 ```bash
-# 直接启动（绕过菜单）
-autoglm --start
+# 直接启动交互模式（绕过菜单）
+autoglm --start 或 autoglm -s
+
+# 单次任务模式
+autoglm --start "任务描述" 或 autoglm -s "任务描述"
 
 # ADB 设备管理（进入子菜单）
 autoglm --setup-adb
@@ -202,6 +218,9 @@ autoglm --uninstall
 autoglm --lang cn    # 切换到中文
 autoglm --lang en    # 切换到英文
 
+# 语音识别模式（需启用语音功能）
+autoglm --voice
+
 # 手动指定参数启动
 autoglm --base-url URL --model MODEL --apikey KEY --device-id ID "你的指令"
 
@@ -216,21 +235,25 @@ autoglm --help
 autoglm
 # 然后在交互界面输入：打开美团搜索附近的火锅店
 
-# 示例 2：直接执行指令
+# 示例 2：语音控制（需启用语音功能）
+autoglm --voice
+# 按提示说出指令："打开微信发送消息给张三"
+
+# 示例 3：直接执行指令
 autoglm --base-url https://open.bigmodel.cn/api/paas/v4 \
-        --model autoglm-4.6.0 \
+        --model autoglm-phone \
         --apikey sk-xxxxx \
         "打开微信发送消息给文件传输助手：Hello World"
 
-# 示例 3：多设备环境下切换到指定设备
+# 示例 4：多设备环境下切换到指定设备
 autoglm --switch-device
 # 或命令行直接指定
 autoglm --device-id 192.168.1.100:5555 "打开B站"
 
-# 示例 4：快速查看所有设备状态
+# 示例 5：快速查看所有设备状态
 autoglm --devices
 
-# 示例 5：切换语言到英文
+# 示例 6：切换语言到英文
 autoglm --lang en
 ```
 
@@ -272,7 +295,6 @@ autoglm --lang en
     "米游社": "com.mihoyo.hyperion",
     "fclash": "com.follow.clash",
     "clash": "com.github.metacubex.clash.meta",
-    "deepseek": "chat.deepseek.com",
     "云原神": "com.miHoYo.cloudgames.ys",
     "firefox": "org.mozilla.firefox",
     "telegram": "org.telegram.messenger.web",
@@ -280,11 +302,8 @@ autoglm --lang en
     "酷狗概念版": "com.kugou.android.lite",
     "mt管理器": "bin.mt.plus",
     "youtube": "com.google.android.youtube",
-    "微博lite": "com.web.weibo",
     # 继续添加更多...
 ```
-
-保存修改后，重启AutoGLM即可生效。
 
 注意事项
 - 应用包名可通过应用商店链接或第三方工具查询（MT管理器-侧边栏-工具-安装包提取，亦可查看）
@@ -306,26 +325,44 @@ autoglm --lang en
 `PHONE_AGENT_MAX_STEPS`	最大执行步数	`100`	
 `PHONE_AGENT_DEVICE_ID`	ADB 设备 ID（新增）	自动检测（留空）	
 `PHONE_AGENT_LANG`	语言	`cn`	
+`VOICE_ENABLED`	语音识别开关	`false`	
+`VOICE_API_BASE_URL`	语音识别 API 地址	https://api.siliconflow.cn/v1	
+`VOICE_API_MODEL`	语音识别模型	FunAudioLLM/SenseVoiceSmall	
+`VOICE_API_KEY`	语音识别 API Key	sk-your-key	
+`VOICE_MAX_DURATION`	最长录音时间	60	
 
 新增说明：
-- `PHONE_AGENT_DEVICE_ID`: 在多设备环境下指定要控制的设备，格式为 `IP:端口` 或设备序列号。留空时自动检测唯一在线设备。
-- `PHONE_AGENT_LANG`: 界面语言设置，支持 `cn`（中文）和 `en`（英文）
+- `PHONE_AGENT_DEVICE_ID`: 在多设备环境下指定要控制的设备，格式为 IP:端口 或设备序列号。留空时自动检测唯一在线设备。
+- `VOICE_ENABLED`: 是否启用语音识别功能
+- `VOICE_API_BASE_URL`: 语音识别服务的基础地址
+- `VOICE_API_MODEL`: 使用的语音识别模型
+- `VOICE_MAX_DURATION`: 单次录音的最长时间（秒）
 
 支持的模型服务（AI模型需要图像识别能力）
 
-1. 智谱 BigModel（推荐，目前官方autoglm-phone模型可免费使用）
+1. 智谱 BigModel（推荐，目前官方autoglm-phone模型[暂时免费](https://docs.bigmodel.cn/cn/guide/models/vlm/autoglm-phone)）
    - Base URL: `https://open.bigmodel.cn/api/paas/v4`
    - 模型: `autoglm-phone`
-   - 申请地址: [BigModel AFF](https://www.bigmodel.cn/claude-code?ic=COJZ8EMHXZ)
+   - 注册地址: [BigModel AFF 邀请](https://www.bigmodel.cn/claude-code?ic=COJZ8EMHXZ)
+   - 密钥申请：[智谱 apikeys](https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys)
 
 2. ModelScope 魔搭社区
    - Base URL: `https://api-inference.modelscope.cn/v1`
    - 模型: `ZhipuAI/AutoGLM-Phone-9B`
    - 申请地址: [ModelScope 平台](https://modelscope.cn/)
 
-3. 其他自定义 AI API
+3. 其他自定义 AI API 接入 AutoGLM
    - 支持 OpenAI 兼容格式的 API 接口
    - 需确保模型具备图像理解能力
+
+4. 语音识别服务（可选）
+   - 需要提供：openai 兼容格式的 AI 语音识别 API
+   - 推荐平台：[硅基流动 AFF 邀请](https://cloud.siliconflow.cn/i/eQGNraUT)，注册即送 2000 万 Tokens
+   - Base URL: `https://api.siliconflow.cn/v1`
+   - 推荐模型：`FunAudioLLM/SenseVoiceSmall`（当前该模型免费）[siliconflow模型价格表](https://siliconflow.cn/pricing)
+   - 密钥申请：[SiliconFlow apikey](https://cloud.siliconflow.cn/me/account/ak)
+   
+   > 语音识别也可以使用智谱 BigModel 提供的glm-asr-2512模型，详情可查看[官方文档](https://docs.bigmodel.cn/cn/guide/models/sound-and-video/glm-asr-2512)
 
 ---
 
@@ -439,15 +476,27 @@ autoglm --uninstall
    - 使用 `autoglm --lang cn` 或 `autoglm --lang en` 切换语言
    - 或在主菜单中选择"切换语言"选项
 
-10. 已经安装了ADB Keyboard，但启动时ADB Keyboard报错
-   - 确保ADB Keyboard已经安装并启用
-   - 如果ADB无线调试配对了多台设备，在切换到其他设备启动时ADB Keyboard报错，可以尝试重启termux并重新连接，或进入ADB管理菜单内断开全部连接，并重启ADB，重新连接后再次启动AutoGLM
+10. 语音识别功能无法使用
+    - 确保在部署时启用了语音识别功能
+    - 检查是否已安装 Termux:API 应用并授予麦克风权限
+    - 确认语音识别 API 配置正确
+    - 检查网络连接是否正常
+
+11. 已经安装了ADB Keyboard，但启动时ADB Keyboard报错
+    - 确保ADB Keyboard已经安装并启用
+    - 如果ADB无线调试配对了多台设备，在切换到其他设备启动时ADB Keyboard报错，可以尝试重启termux并重新连接，或进入ADB管理菜单内断开全部连接，并重启ADB，重新连接后再次启动AutoGLM
 
 ---
 
 🔄 更新日志
 
-v4.6.0 (当前版本)
+v5.0.1 (当前版本)
+- 新增：全面支持语音识别功能，可通过语音控制手机
+- 新增：语音识别配置向导，支持多种语音识别服务
+- 修复：语音识别和快速启动问题
+- 优化：交互式菜单，支持动态显示语音功能选项
+
+v4.6.0
 - 新增：全面国际化支持，支持中英文界面切换
 - 新增：语言选择向导，部署时即可选择语言
 
@@ -498,6 +547,7 @@ v4.2.0
 - AutoGLM 论文: https://arxiv.org/abs/2411.00820
 - 智谱 AI: https://www.zhipuai.cn/
 - ModelScope: https://modelscope.cn/
+- SiliconFlow（语音识别）: https://siliconflow.cn/
 
 ---
 
@@ -506,6 +556,7 @@ v4.2.0
 - [Open-AutoGLM](https://github.com/zai-org/Open-AutoGLM) - 核心框架
 - [ADBKeyBoard](https://github.com/senzhk/ADBKeyBoard) - 输入解决方案
 - [Termux](https://termux.dev/) - 强大的终端模拟器
+- [Termux:API](https://github.com/termux/termux-api) - 语音识别支持
 
 ---
 
