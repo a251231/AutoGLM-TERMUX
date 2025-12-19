@@ -5,7 +5,7 @@ AutoGLM-Termux 部署工具
 [![Termux](https://img.shields.io/badge/Termux-支持-black)](https://termux.dev/)
 [![License](https://img.shields.io/badge/License-MIT-orange)](https://opensource.org/licenses/MIT)
 
-[🌐 切换到英文文档 / Switch to English Documentation](https://github.com/eraycc/AutoGLM-TERMUX/blob/main/README_en.md)
+[🌐 切换到英文文档 / Switch to English Documentation](https://github.com/a251231/AutoGLM-TERMUX/blob/main/README_en.md)
 
 在安卓手机上通过 Termux 快速部署 Open-AutoGLM 智能体，无需ROOT或电脑等其他设备，即可实现手机自动化操作！
 
@@ -84,7 +84,7 @@ AutoGLM-Termux 是一个专为 Termux 环境优化的 Open-AutoGLM 一键部署�
 pkg upgrade -y
 
 # 2. 下载部署脚本
-curl -O https://raw.githubusercontent.com/eraycc/AutoGLM-TERMUX/refs/heads/main/deploy.sh
+curl -O https://raw.githubusercontent.com/a251231/AutoGLM-TERMUX/refs/heads/main/deploy.sh
 
 # 3. 授予执行权限
 chmod +x deploy.sh
@@ -127,7 +127,7 @@ termux-change-repo
 步骤 4：运行部署脚本
 
 ```bash
-curl -O https://raw.githubusercontent.com/eraycc/AutoGLM-TERMUX/refs/heads/main/deploy.sh
+curl -O https://raw.githubusercontent.com/a251231/AutoGLM-TERMUX/refs/heads/main/deploy.sh
 chmod +x deploy.sh
 ./deploy.sh
 ```
@@ -146,6 +146,29 @@ chmod +x deploy.sh
 8. ADB Keyboard 提醒：提示安装必需的输入法工具（必须步骤）
 9. ADB 无线配置：引导完成手机无线调试连接（支持自动检测已连接设备）
 10. 创建启动器：生成 `autoglm` 快捷命令并自动加入 PATH
+
+---
+
+🖥️ Web 管理端与常驻服务（可选）
+
+希望在局域网内用电脑/平板浏览器管理 AutoGLM（配置、启动/停止、看日志、ADB 配对/连接/切换/断开），可选安装：
+
+```bash
+# 安装 Web 管理端
+curl -O https://raw.githubusercontent.com/a251231/AutoGLM-TERMUX/refs/heads/main/install_web.sh
+chmod +x install_web.sh
+./install_web.sh
+
+# 启动 Web（默认 0.0.0.0:8000）
+autoglm-web run --host 0.0.0.0 --port 8000
+
+# termux-services 常驻服务（重启自动拉起）
+curl -O https://raw.githubusercontent.com/a251231/AutoGLM-TERMUX/refs/heads/main/install_web_service.sh
+chmod +x install_web_service.sh
+./install_web_service.sh
+```
+
+启动后终端会打印 Token，浏览器访问 `http://<手机IP>:8000/`，粘贴 Token 即可使用。Token 存在 `~/.autoglm/web_token`，可用 `autoglm-web reset-token` 重置。
 
 ---
 
