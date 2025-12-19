@@ -174,10 +174,14 @@ def read_config() -> AutoglmConfig:
 def write_config(updated: AutoglmConfig) -> None:
     path = config_sh_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    content = "\\n".join(updated.to_export_lines())
+    content = "\n".join(updated.to_export_lines())
     path.write_text(content, encoding="utf-8")
     try:
         path.chmod(0o600)
     except Exception:
         pass
+
+
+def config_exists() -> bool:
+    return config_sh_path().exists()
 

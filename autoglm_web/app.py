@@ -13,7 +13,7 @@ from .autoglm_process import status as autoglm_status
 from .autoglm_process import stop as stop_autoglm
 from .autoglm_process import tail_log
 from .auth import AuthResult, require_token
-from .config import AutoglmConfig, read_config, write_config
+from .config import AutoglmConfig, config_exists, read_config, write_config
 from .storage import (
     delete_app,
     delete_task,
@@ -749,6 +749,9 @@ def set_config(payload: dict[str, Any], _: AuthResult = Depends(require_token)) 
     lang = str(payload.get("lang", cfg.lang) or cfg.lang).strip()
 
     if not api_key:
+        # 如果当前配置文件不存在或仍是默认占位符，则拒绝保存空的 API Key，避免覆盖真实配置
+        if not config_exists() or cfg.api_key == "sk-your-apikey":
+            raise HTTPException(status_code=400, detail="首次保存配置必须填写有效的 API Key")
         api_key = cfg.api_key
 
     updated = AutoglmConfig(
