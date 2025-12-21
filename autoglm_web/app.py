@@ -22,7 +22,7 @@ from .autoglm_process import stop as stop_autoglm
 from .autoglm_process import tail_log
 from .apps_config import add_entries, load_app_packages
 from .auth import AuthResult, require_token
-from .config import AutoglmConfig, config_exists, read_config, write_config
+from .config import AutoglmConfig, config_exists, read_config, write_config, update_device_id
 from .storage import delete_task, list_tasks, upsert_task
 from .tasks_runner import get_interactive_log, new_session, run_prompt_once, run_task_by_id, send_interactive
 
