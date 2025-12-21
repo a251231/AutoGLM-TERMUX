@@ -23,7 +23,8 @@ chmod +x install_web.sh
 ## 启动
 
 ```bash
-autoglm-web run --host 0.0.0.0 --port 8000
+# 推荐显式指定配置目录，确保读取同一份 Key
+AUTOGLM_HOME=$HOME/.autoglm autoglm-web run --host 0.0.0.0 --port 8000
 ```
 
 启动时会在终端打印 `token`，也可以随时查看：
@@ -108,5 +109,5 @@ Android 可能会杀掉后台进程。建议：
 
 ```bash
 export AUTOGLM_DIR="$HOME/你的路径/Open-AutoGLM"
-autoglm-web run --host 0.0.0.0 --port 8000
+AUTOGLM_HOME=$HOME/.autoglm autoglm-web run --host 0.0.0.0 --port 8000
 ```
