@@ -100,6 +100,8 @@ chmod +x deploy.sh
 > AUTOGLM_HOME=$HOME/.autoglm autoglm-web run --host 0.0.0.0 --port 8000
 > ```
 
+> Web 端提示：在 ADB 管理卡片新增“已安装应用”功能，可一键获取手机已安装第三方包名并写入 `Open-AutoGLM/phone_agent/config/apps.py` 的 `APP_PACKAGES`，无需手动编辑文件。
+
 ---
 
 📋 详细部署步骤
