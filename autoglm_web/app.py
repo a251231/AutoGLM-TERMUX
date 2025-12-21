@@ -7,7 +7,15 @@ from fastapi import Depends, FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from . import __version__
-from .adb import connect, devices, disconnect, list_packages, pair, restart_server
+from .adb import (
+    connect,
+    devices,
+    disconnect,
+    list_packages,
+    list_packages_with_labels,
+    pair,
+    restart_server,
+)
 from .autoglm_process import start as start_autoglm
 from .autoglm_process import status as autoglm_status
 from .autoglm_process import stop as stop_autoglm
@@ -159,16 +167,16 @@ def index() -> str:
         <div style="margin-top:12px;">
           <div class="row" style="align-items:center;">
             <h4 style="margin:0; flex:1;">已安装应用（第三方）</h4>
-            <button onclick="fetchPackages()">获取包名</button>
+            <button onclick="fetchPackages()">获取包名+名称</button>
           </div>
           <div class="row" style="margin-top:8px; align-items:end;">
             <div style="flex:1; min-width:200px;">
-              <label>选择包名</label>
+              <label>选择应用</label>
               <select id="pkg_select" style="width:100%; padding:8px; border-radius:8px;"></select>
             </div>
             <div style="flex:1; min-width:200px;">
-              <label>应用名称（写入 apps.py 时使用，不填则默认用包名）</label>
-              <input id="pkg_name" placeholder="例如 wechat" />
+              <label>应用名称（可选，默认使用检测到的名称或包名）</label>
+              <input id="pkg_name" placeholder="例如 微信" />
             </div>
             <button class="primary" onclick="addToAppsConfig()">添加到 apps.py</button>
           </div>
@@ -675,8 +683,8 @@ async function fetchPackages() {{
     sel.innerHTML = "";
     pkgs.forEach(p => {{
       const opt = document.createElement("option");
-      opt.value = p;
-      opt.textContent = p;
+      opt.value = p.package;
+      opt.textContent = (p.label ? (p.label + " - " + p.package) : p.package);
       sel.appendChild(opt);
     }});
     setMsg("pkgMsg", "已获取 " + pkgs.length + " 个包名");

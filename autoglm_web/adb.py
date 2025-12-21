@@ -99,6 +99,32 @@ def list_packages(third_party: bool = True) -> list[str]:
     return pkgs
 
 
+def _package_label(pkg: str) -> str | None:
+    # 尝试从 dumpsys 中获取 application-label
+    cmd = ["shell", "dumpsys", "package", pkg]
+    code, out = _run_adb(cmd, timeout_s=8)
+    if code != 0 or not out:
+        return None
+    for ln in out.splitlines():
+        ln = ln.strip()
+        if "application-label:" in ln:
+            return ln.split("application-label:", 1)[1].strip()
+        if "application-label-zh:" in ln:
+            return ln.split("application-label-zh:", 1)[1].strip()
+    return None
+
+
+def list_packages_with_labels(third_party: bool = True, limit: int | None = None) -> list[dict[str, str]]:
+    pkgs = list_packages(third_party=third_party)
+    if limit is not None:
+        pkgs = pkgs[:limit]
+    result: list[dict[str, str]] = []
+    for pkg in pkgs:
+        label = _package_label(pkg) or ""
+        result.append({"package": pkg, "label": label})
+    return result
+
+
 def shell(cmd: str, timeout_s: int = 20) -> tuple[bool, str]:
     rc, out = _run_adb(["shell", cmd], timeout_s=timeout_s)
     return rc == 0, out
