@@ -679,7 +679,7 @@ async function fetchPackages() {{
       opt.textContent = p;
       sel.appendChild(opt);
     }});
-    setMsg("pkgMsg", `已获取 ${pkgs.length} 个包名`);
+    setMsg("pkgMsg", "已获取 " + pkgs.length + " 个包名");
   }} catch (e) {{
     setMsg("pkgMsg", "获取失败: " + e.message);
   }}
