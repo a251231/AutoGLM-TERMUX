@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-import json
 import time
 import uuid
+import subprocess
+import os
+from pathlib import Path
 from typing import Any
 
 from . import adb
@@ -16,6 +18,10 @@ def _log_line(text: str) -> None:
     lf.parent.mkdir(parents=True, exist_ok=True)
     with lf.open("a", encoding="utf-8") as f:
         f.write(f"[{time.strftime('%F %T')}] {text}\n")
+
+
+def _autoglm_dir() -> Path:
+    return Path(os.environ.get("AUTOGLM_DIR", str(Path.home() / "Open-AutoGLM"))).expanduser()
 
 
 def ensure_autoglm_running() -> None:
@@ -149,10 +155,19 @@ def new_session() -> str:
 def send_interactive(sid: str, text: str) -> list[str]:
     if sid not in _sessions:
         raise ValueError("会话不存在")
-    ensure_autoglm_running()
+    output_lines: list[str] = []
+    try:
+        output = run_prompt_once(text)
+        output_lines = [ln for ln in output.splitlines() if ln.strip()]
+    except Exception as e:
+        output_lines = [f"执行失败: {e}"]
     line = f"[session {sid}] {text}"
     _sessions[sid].append(line)
+    for ln in output_lines:
+        _sessions[sid].append(f"[session {sid}] {ln}")
     _log_line(line)
+    for ln in output_lines:
+        _log_line(f"[session {sid} output] {ln}")
     return _sessions[sid][-20:]
 
 
@@ -161,3 +176,41 @@ def get_interactive_log(sid: str) -> list[str]:
         return []
     return _sessions[sid][-50:]
 
+
+def run_prompt_once(prompt: str, timeout_s: int = 600) -> str:
+    cfg = read_config()
+    workdir = _autoglm_dir()
+    if not workdir.exists():
+        raise RuntimeError(f"未找到 Open-AutoGLM 目录: {workdir}")
+    args = [
+        "python",
+        "main.py",
+        "--base-url",
+        cfg.base_url,
+        "--model",
+        cfg.model,
+        "--apikey",
+        cfg.api_key,
+    ]
+    if cfg.device_id:
+        args += ["--device-id", cfg.device_id]
+    if str(cfg.max_steps).strip():
+        args += ["--max-steps", str(cfg.max_steps)]
+    if cfg.lang:
+        args += ["--lang", cfg.lang]
+
+    input_data = f"{prompt}\nquit\n"
+    try:
+        proc = subprocess.run(
+            args,
+            cwd=str(workdir),
+            input=input_data,
+            text=True,
+            capture_output=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired:
+        raise RuntimeError("执行超时")
+    output = (proc.stdout or "") + ("\n" + proc.stderr if proc.stderr else "")
+    _log_line(f"[prompt once] {prompt}")
+    return output.strip()

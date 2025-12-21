@@ -25,6 +25,7 @@ from .storage import (
 from .tasks_runner import (
     get_interactive_log,
     new_session,
+    run_prompt_once,
     run_app_by_id,
     run_task_by_id,
     send_interactive,
