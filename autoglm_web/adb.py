@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shlex
 import subprocess
 from dataclasses import dataclass
@@ -147,6 +148,11 @@ def swipe(x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300) -> tuple[b
 
 
 def keyevent(key: str) -> tuple[bool, str]:
+    key = str(key or "").strip()
+    if not key:
+        return False, "invalid keyevent"
+    if not (re.fullmatch(r"\d+", key) or re.fullmatch(r"KEYCODE_[A-Z0-9_]+", key)):
+        return False, "invalid keyevent"
     return shell(f"input keyevent {key}")
 
 

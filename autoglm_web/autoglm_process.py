@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import signal
+import threading
 import time
 import subprocess
 from dataclasses import dataclass
@@ -10,6 +11,7 @@ from pathlib import Path
 from .config import AutoglmConfig
 
 _proc: subprocess.Popen | None = None
+_lock = threading.RLock()
 
 
 def _autoglm_dir() -> Path:
@@ -47,112 +49,121 @@ def _is_running(pid: int) -> bool:
 
 def status() -> ProcessStatus:
     global _proc
-    _state_dir().mkdir(parents=True, exist_ok=True)
-    pid = None
-    if pid_file().exists():
-        try:
-            pid = int(pid_file().read_text(encoding="utf-8").strip())
-        except Exception:
-            pid = None
-    running = bool(pid) and _is_running(pid)
-    if pid and not running:
-        try:
-            pid_file().unlink()
-        except Exception:
-            pass
+    with _lock:
+        _state_dir().mkdir(parents=True, exist_ok=True)
         pid = None
-    if _proc and _proc.poll() is not None:
-        _proc = None
-    return ProcessStatus(
-        running=running,
-        pid=pid,
-        log_path=str(log_file()),
-        autoglm_dir=str(_autoglm_dir()),
-    )
+        if pid_file().exists():
+            try:
+                pid = int(pid_file().read_text(encoding="utf-8").strip())
+            except Exception:
+                pid = None
+        running = bool(pid) and _is_running(pid)
+        if pid and not running:
+            try:
+                pid_file().unlink()
+            except Exception:
+                pass
+            pid = None
+        if _proc and _proc.poll() is not None:
+            _proc = None
+        return ProcessStatus(
+            running=running,
+            pid=pid,
+            log_path=str(log_file()),
+            autoglm_dir=str(_autoglm_dir()),
+        )
 
 
 def start(cfg: AutoglmConfig) -> tuple[bool, str]:
     global _proc
-    st = status()
-    if st.running:
-        return False, f"AutoGLM 已在运行 (pid={st.pid})"
+    with _lock:
+        st = status()
+        if st.running:
+            return False, f"AutoGLM 已在运行 (pid={st.pid})"
 
-    workdir = _autoglm_dir()
-    if not workdir.exists():
-        return False, f"未找到 Open-AutoGLM 目录: {workdir}"
+        workdir = _autoglm_dir()
+        if not workdir.exists():
+            return False, f"未找到 Open-AutoGLM 目录: {workdir}"
 
-    _state_dir().mkdir(parents=True, exist_ok=True)
-    lf = log_file()
-    log_fp = lf.open("a", encoding="utf-8")
+        _state_dir().mkdir(parents=True, exist_ok=True)
+        lf = log_file()
+        log_fp = lf.open("a", encoding="utf-8")
 
-    args = [
-        "python",
-        "main.py",
-        "--base-url",
-        cfg.base_url,
-        "--model",
-        cfg.model,
-        "--apikey",
-        cfg.api_key,
-    ]
-    if cfg.device_id:
-        args += ["--device-id", cfg.device_id]
-    if str(cfg.max_steps).strip():
-        args += ["--max-steps", str(cfg.max_steps)]
-    if cfg.lang:
-        args += ["--lang", cfg.lang]
+        args = [
+            "python",
+            "main.py",
+            "--base-url",
+            cfg.base_url,
+            "--model",
+            cfg.model,
+            "--apikey",
+            cfg.api_key,
+        ]
+        if cfg.device_id:
+            args += ["--device-id", cfg.device_id]
+        if str(cfg.max_steps).strip():
+            args += ["--max-steps", str(cfg.max_steps)]
+        if cfg.lang:
+            args += ["--lang", cfg.lang]
 
-    try:
-        proc = subprocess.Popen(
-            args,
-            cwd=str(workdir),
-            stdout=log_fp,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE,
-            text=True,
-        )
-    except Exception as e:
+        try:
+            proc = subprocess.Popen(
+                args,
+                cwd=str(workdir),
+                stdout=log_fp,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE,
+                text=True,
+            )
+        except Exception as e:
+            log_fp.close()
+            return False, f"启动失败: {e}"
+
+        _proc = proc
+        pid_file().write_text(str(proc.pid) + "\n", encoding="utf-8")
+        try:
+            pid_file().chmod(0o600)
+        except Exception:
+            pass
+        log_fp.write(f"\n[autoglm-web] started pid={proc.pid} at {time.strftime('%F %T')}\n")
+        log_fp.flush()
         log_fp.close()
-        return False, f"启动失败: {e}"
-
-    _proc = proc
-    pid_file().write_text(str(proc.pid) + "\n", encoding="utf-8")
-    try:
-        pid_file().chmod(0o600)
-    except Exception:
-        pass
-    log_fp.write(f"\n[autoglm-web] started pid={proc.pid} at {time.strftime('%F %T')}\n")
-    log_fp.flush()
-    return True, f"已启动 (pid={proc.pid})"
+        return True, f"已启动 (pid={proc.pid})"
 
 
 def stop() -> tuple[bool, str]:
     global _proc
-    st = status()
-    if not st.pid:
-        return False, "当前没有由 Web 管理端启动的进程"
-    pid = st.pid
-    try:
-        os.kill(pid, signal.SIGTERM)
-    except Exception as e:
-        return False, f"停止失败: {e}"
-
-    for _ in range(30):
-        if not _is_running(pid):
-            break
-        time.sleep(0.2)
-    if _is_running(pid):
+    with _lock:
+        st = status()
+        if not st.pid:
+            return False, "当前没有由 Web 管理端启动的进程"
+        pid = st.pid
         try:
-            os.kill(pid, signal.SIGKILL)
+            os.kill(pid, signal.SIGTERM)
+        except Exception as e:
+            return False, f"停止失败: {e}"
+
+        for _ in range(30):
+            if not _is_running(pid):
+                break
+            time.sleep(0.2)
+        if _is_running(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except Exception:
+                pass
+
+        try:
+            pid_file().unlink()
         except Exception:
             pass
-
-    try:
-        pid_file().unlink()
-    except Exception:
-        pass
-    _proc = None
-    return True, "已停止"
+        if _proc and _proc.stdin:
+            try:
+                _proc.stdin.close()
+            except Exception:
+                pass
+        _proc = None
+        return True, "已停止"
 
 
 def tail_log(offset: int, max_bytes: int = 32_000) -> tuple[int, str]:
@@ -175,15 +186,16 @@ def tail_log(offset: int, max_bytes: int = 32_000) -> tuple[int, str]:
 
 def send_input(text: str) -> tuple[bool, str]:
     """向已运行的 AutoGLM 进程发送一行输入（需先通过 start 启动）"""
-    st = status()
-    if not st.running:
-        return False, "AutoGLM 未在运行，请先启动"
-    if _proc is None or _proc.poll() is not None or _proc.stdin is None:
-        return False, "进程句柄不可用，请尝试重新启动 AutoGLM"
-    try:
-        _proc.stdin.write(text + "\n")
-        _proc.stdin.flush()
-        return True, "已发送"
-    except Exception as e:
-        return False, f"发送失败: {e}"
+    with _lock:
+        st = status()
+        if not st.running:
+            return False, "AutoGLM 未在运行，请先启动"
+        if _proc is None or _proc.poll() is not None or _proc.stdin is None:
+            return False, "进程句柄不可用，请尝试重新启动 AutoGLM"
+        try:
+            _proc.stdin.write(text + "\n")
+            _proc.stdin.flush()
+            return True, "已发送"
+        except Exception as e:
+            return False, f"发送失败: {e}"
 
