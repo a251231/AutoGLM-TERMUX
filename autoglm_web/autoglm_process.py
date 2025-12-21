@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 import signal
-import subprocess
 import time
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 from .config import AutoglmConfig
+
+_proc: subprocess.Popen | None = None
 
 
 def _autoglm_dir() -> Path:
@@ -44,6 +46,7 @@ def _is_running(pid: int) -> bool:
 
 
 def status() -> ProcessStatus:
+    global _proc
     _state_dir().mkdir(parents=True, exist_ok=True)
     pid = None
     if pid_file().exists():
@@ -58,6 +61,8 @@ def status() -> ProcessStatus:
         except Exception:
             pass
         pid = None
+    if _proc and _proc.poll() is not None:
+        _proc = None
     return ProcessStatus(
         running=running,
         pid=pid,
@@ -67,6 +72,7 @@ def status() -> ProcessStatus:
 
 
 def start(cfg: AutoglmConfig) -> tuple[bool, str]:
+    global _proc
     st = status()
     if st.running:
         return False, f"AutoGLM 已在运行 (pid={st.pid})"
@@ -102,12 +108,14 @@ def start(cfg: AutoglmConfig) -> tuple[bool, str]:
             cwd=str(workdir),
             stdout=log_fp,
             stderr=subprocess.STDOUT,
+            stdin=subprocess.PIPE,
             text=True,
         )
     except Exception as e:
         log_fp.close()
         return False, f"启动失败: {e}"
 
+    _proc = proc
     pid_file().write_text(str(proc.pid) + "\n", encoding="utf-8")
     try:
         pid_file().chmod(0o600)
@@ -119,6 +127,7 @@ def start(cfg: AutoglmConfig) -> tuple[bool, str]:
 
 
 def stop() -> tuple[bool, str]:
+    global _proc
     st = status()
     if not st.pid:
         return False, "当前没有由 Web 管理端启动的进程"
@@ -142,6 +151,7 @@ def stop() -> tuple[bool, str]:
         pid_file().unlink()
     except Exception:
         pass
+    _proc = None
     return True, "已停止"
 
 
@@ -161,4 +171,19 @@ def tail_log(offset: int, max_bytes: int = 32_000) -> tuple[int, str]:
     except Exception:
         text = ""
     return new_offset, text
+
+
+def send_input(text: str) -> tuple[bool, str]:
+    """向已运行的 AutoGLM 进程发送一行输入（需先通过 start 启动）"""
+    st = status()
+    if not st.running:
+        return False, "AutoGLM 未在运行，请先启动"
+    if _proc is None or _proc.poll() is not None or _proc.stdin is None:
+        return False, "进程句柄不可用，请尝试重新启动 AutoGLM"
+    try:
+        _proc.stdin.write(text + "\n")
+        _proc.stdin.flush()
+        return True, "已发送"
+    except Exception as e:
+        return False, f"发送失败: {e}"
 

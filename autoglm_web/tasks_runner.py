@@ -137,6 +137,7 @@ def run_task_by_id(task_id: str, params: dict[str, Any] | None = None) -> list[d
 
 MAX_SESSIONS = 50  # 会话上限，超出则丢弃最早的
 _sessions: dict[str, list[str]] = {}
+_session_offsets: dict[str, int] = {}
 
 
 def new_session() -> str:
@@ -146,7 +147,12 @@ def new_session() -> str:
         # FIFO 删除最早创建的会话
         oldest_sid = next(iter(_sessions))
         del _sessions[oldest_sid]
+        _session_offsets.pop(oldest_sid, None)
     _sessions[sid] = []
+    try:
+        _session_offsets[sid] = autoglm_process.log_file().stat().st_size
+    except Exception:
+        _session_offsets[sid] = 0
     _log_line(f"[session {sid}] started")
     return sid
 
@@ -154,12 +160,22 @@ def new_session() -> str:
 def send_interactive(sid: str, text: str) -> list[str]:
     if sid not in _sessions:
         raise ValueError("会话不存在")
+    st = autoglm_process.status()
+    if not st.running:
+        raise ValueError("AutoGLM 未在运行，请先启动")
     output_lines: list[str] = []
-    try:
-        output = run_prompt_once(text)
-        output_lines = [ln for ln in output.splitlines() if ln.strip()]
-    except Exception as e:
-        output_lines = [f"执行失败: {e}"]
+    ok, msg = autoglm_process.send_input(text)
+    if not ok:
+        output_lines = [f"执行失败: {msg}"]
+    else:
+        offset = _session_offsets.get(sid, 0)
+        time.sleep(0.2)
+        try:
+            new_offset, chunk = autoglm_process.tail_log(offset)
+            _session_offsets[sid] = new_offset
+            output_lines = [ln for ln in chunk.splitlines() if ln.strip()]
+        except Exception as e:
+            output_lines = [f"发送成功，但读取日志失败: {e}"]
     line = f"[session {sid}] {text}"
     _sessions[sid].append(line)
     for ln in output_lines:
