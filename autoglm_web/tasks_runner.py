@@ -91,11 +91,16 @@ def run_step(step: dict[str, Any], params: dict[str, Any]) -> tuple[bool, str]:
         _log_line(f"[app launch] {package} {activity or ''} -> {out}")
         return ok, out
     if stype == "autoglm_prompt":
-        # 目前仅写入日志并确保进程运行
-        ensure_autoglm_running()
         text = _format(step.get("text", ""), params)
-        _log_line(f"[autoglm prompt] {text}")
-        return True, "已写入提示并保持 AutoGLM 运行"
+        try:
+            output = run_prompt_once(text)
+            _log_line(f"[autoglm prompt] {text}")
+            for ln in output.splitlines():
+                _log_line(f"[autoglm prompt output] {ln}")
+            return True, output
+        except Exception as e:
+            _log_line(f"[autoglm prompt error] {e}")
+            return False, str(e)
     return False, f"未知步骤类型: {stype}"
 
 
@@ -123,6 +128,15 @@ def run_task_by_id(task_id: str, params: dict[str, Any] | None = None) -> list[d
     if not task:
         raise ValueError("未找到任务")
     results: list[dict[str, Any]] = []
+    prompt = task.get("prompt", "")
+    if prompt:
+        try:
+            output = run_prompt_once(prompt)
+            results.append({"type": "autoglm_prompt", "ok": True, "output": output})
+            return results
+        except Exception as e:
+            results.append({"type": "autoglm_prompt", "ok": False, "output": str(e)})
+            return results
     steps = task.get("steps", [])
     ensure_autoglm_running()
     for st in steps:

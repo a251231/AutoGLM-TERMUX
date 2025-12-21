@@ -200,7 +200,9 @@ def index() -> str:
         </div>
         <label>描述</label>
         <input id="task_desc" />
-        <label>步骤（JSON 数组，支持 type: app/app_id 或与应用步骤相同的宏类型）</label>
+        <label>自然语言指令（可选，填了则直接调用模型执行，无需写步骤）</label>
+        <textarea id="task_prompt" rows="3" placeholder="例如：打开微信并给张三发一条消息"></textarea>
+        <label>步骤（JSON 数组，支持 type: app/app_id 或与应用步骤相同的宏类型；如果已填写自然语言指令，可以留空）</label>
         <textarea id="task_steps" rows="6" placeholder='[{{"type":"app","app_id":"<应用ID>"}},{{"type":"adb_input","text":"Hello"}}]'></textarea>
         <div class="row" style="margin-top:10px;">
           <button class="primary" onclick="saveTask()">保存/更新</button>
@@ -570,6 +572,7 @@ async function saveTask() {{
     id: document.getElementById("task_id").value.trim(),
     name: document.getElementById("task_name").value.trim(),
     description: document.getElementById("task_desc").value.trim(),
+    prompt: document.getElementById("task_prompt").value.trim(),
     steps,
   }};
   try {{
@@ -588,6 +591,7 @@ function editTask(id) {{
   document.getElementById("task_id").value = t.id;
   document.getElementById("task_name").value = t.name || "";
   document.getElementById("task_desc").value = t.description || "";
+  document.getElementById("task_prompt").value = t.prompt || "";
   document.getElementById("task_steps").value = JSON.stringify(t.steps || [], null, 2);
 }}
 
@@ -841,6 +845,7 @@ def api_save_task(payload: dict[str, Any], _: AuthResult = Depends(require_token
         "id": str(payload.get("id", "") or ""),
         "name": str(payload.get("name", "") or ""),
         "description": str(payload.get("description", "") or ""),
+        "prompt": str(payload.get("prompt", "") or ""),
         "steps": steps,
     }
     saved = upsert_task(task)
