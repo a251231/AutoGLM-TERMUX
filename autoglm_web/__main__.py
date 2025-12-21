@@ -4,6 +4,7 @@ import argparse
 import os
 import sys
 
+from .net import candidate_urls
 from .security import load_or_create_token, reset_token
 
 
@@ -32,8 +33,12 @@ def main(argv: list[str] | None = None) -> int:
         port = args.port
         os.environ["AUTOGLM_WEB_HOST"] = host
         os.environ["AUTOGLM_WEB_PORT"] = str(port)
+        urls = candidate_urls(host, port)
         print(f"[autoglm-web] token: {token}")
         print(f"[autoglm-web] listening: http://{host}:{port}/")
+        if urls:
+            for u in urls:
+                print(f"[autoglm-web] open: {u}")
         try:
             import uvicorn
         except Exception as e:

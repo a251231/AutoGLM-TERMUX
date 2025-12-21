@@ -15,6 +15,7 @@ from .adb import (
     list_packages_with_labels,
     pair,
     restart_server,
+    version as adb_version,
 )
 from .autoglm_process import start as start_autoglm
 from .autoglm_process import status as autoglm_status
@@ -23,6 +24,7 @@ from .autoglm_process import tail_log
 from .apps_config import add_entries, load_app_packages
 from .auth import AuthResult, require_token
 from .config import AutoglmConfig, config_exists, read_config, write_config, update_device_id
+from .net import candidate_urls
 from .storage import delete_task, list_tasks, upsert_task
 from .tasks_runner import get_interactive_log, new_session, run_prompt_once, run_task_by_id, send_interactive
 
@@ -30,11 +32,9 @@ app = FastAPI(title="AutoGLM Web", version=__version__)
 
 
 def _server_info() -> dict[str, Any]:
-    return {
-        "version": __version__,
-        "host": os.environ.get("AUTOGLM_WEB_HOST", "0.0.0.0"),
-        "port": int(os.environ.get("AUTOGLM_WEB_PORT", "8000")),
-    }
+    host = os.environ.get("AUTOGLM_WEB_HOST", "0.0.0.0")
+    port = int(os.environ.get("AUTOGLM_WEB_PORT", "8000"))
+    return {"version": __version__, "host": host, "port": port, "urls": candidate_urls(host, port)}
 
 
 @app.get("/health")
@@ -73,6 +73,7 @@ def index() -> str:
   <div class="wrap">
     <h2 style="margin:0 0 6px 0;">AutoGLM Web <span class="muted">v{__version__}</span></h2>
     <div class="muted" id="serverInfo"></div>
+    <div class="muted" id="checkMsg"></div>
 
     <div class="card" style="margin-top:12px;">
       <div class="row" style="align-items:end;">
@@ -256,6 +257,10 @@ let tasksCache = [];
 function authHeader() {{
   const t = localStorage.getItem(LS_TOKEN_KEY) || "";
   return t ? {{ "Authorization": "Bearer " + t }} : {{}};
+}}
+
+function hasToken() {{
+  return !!((localStorage.getItem(LS_TOKEN_KEY) || "").trim());
 }}
 
 function setMsg(id, msg) {{
@@ -487,6 +492,7 @@ function resetTaskForm() {{
   document.getElementById("task_id").value = "";
   document.getElementById("task_name").value = "";
   document.getElementById("task_desc").value = "";
+  document.getElementById("task_prompt").value = "";
   document.getElementById("task_steps").value = "";
 }}
 
@@ -676,7 +682,30 @@ async function pollLogs() {{
   setTimeout(pollLogs, 1000);
 }}
 
+async function loadChecks() {{
+  try {{
+    const data = await apiJson("/api/checks");
+    const items = [];
+    if (data.adb && !data.adb.ok) items.push("ADB: " + (data.adb.message || "异常"));
+    if (data.autoglm_dir && !data.autoglm_dir.ok) items.push("Open-AutoGLM: " + (data.autoglm_dir.message || "异常"));
+    if (data.config && !data.config.ok) items.push("配置: " + (data.config.message || "异常"));
+    setMsg("checkMsg", items.length ? ("自检: " + items.join(" | ")) : "自检: OK");
+  }} catch (e) {{
+    // 没有 Token 时会报错，忽略即可
+    setMsg("checkMsg", "");
+  }}
+}}
+
 async function refreshAll() {{
+  if (!hasToken()) {{
+    setMsg("checkMsg", "请先粘贴并保存 Token");
+    setMsg("configMsg", "");
+    setMsg("adbMsg", "");
+    setMsg("taskMsg", "");
+    setMsg("runMsg", "");
+    return;
+  }}
+  await loadChecks();
   await loadConfig();
   await loadDevices();
   await loadTasks();
@@ -686,7 +715,11 @@ async function refreshAll() {{
 async function loadServerInfo() {{
   const r = await fetch("/api/info");
   const j = await r.json();
-  document.getElementById("serverInfo").textContent = "监听 " + j.host + ":" + j.port + "（同一局域网可访问）";
+  let text = "监听 " + j.host + ":" + j.port;
+  if (j.urls && j.urls.length) {{
+    text += " | 访问: " + j.urls.join("  ");
+  }}
+  document.getElementById("serverInfo").textContent = text;
 }}
 
 document.getElementById("token").value = localStorage.getItem(LS_TOKEN_KEY) || "";
@@ -701,6 +734,21 @@ pollLogs();
 @app.get("/api/info")
 def info() -> dict[str, Any]:
     return _server_info()
+
+@app.get("/api/checks")
+def checks(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    ok_adb, out_adb = adb_version()
+    st = autoglm_status()
+    autoglm_dir = st.autoglm_dir
+    ok_dir = bool(autoglm_dir) and os.path.isdir(autoglm_dir)
+    cfg = read_config()
+    ok_cfg = bool(cfg.api_key and cfg.api_key != "sk-your-apikey")
+    cfg_msg = "已配置" if ok_cfg else "API Key 未配置（请在 Web 配置中填写并保存）"
+    return {
+        "adb": {"ok": ok_adb, "message": out_adb or ("正常" if ok_adb else "异常")},
+        "autoglm_dir": {"ok": ok_dir, "path": autoglm_dir, "message": ("目录存在" if ok_dir else f"目录不存在: {autoglm_dir}")},
+        "config": {"ok": ok_cfg, "message": cfg_msg},
+    }
 
 
 @app.get("/api/config")
@@ -748,7 +796,11 @@ def set_device(payload: dict[str, Any], _: AuthResult = Depends(require_token)) 
 @app.get("/api/adb/devices")
 def adb_devices(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
     cfg = read_config()
-    return {"devices": [d.__dict__ for d in devices()], "selected_device": cfg.device_id or ""}
+    try:
+        ds = devices(raise_on_error=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    return {"devices": [d.__dict__ for d in ds], "selected_device": cfg.device_id or ""}
 
 @app.get("/api/adb/packages")
 def adb_packages(limit: int | None = None, _: AuthResult = Depends(require_token)) -> dict[str, Any]:
@@ -756,7 +808,10 @@ def adb_packages(limit: int | None = None, _: AuthResult = Depends(require_token
     if limit is None or limit <= 0:
         limit = 120
     limit = min(limit, max_limit)
-    pkgs = list_packages_with_labels(third_party=True, limit=limit)
+    try:
+        pkgs = list_packages_with_labels(third_party=True, limit=limit, raise_on_error=True)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
     return {"packages": pkgs}
 
 # 写入 apps.py
@@ -776,8 +831,10 @@ def adb_packages_add(payload: dict[str, Any], _: AuthResult = Depends(require_to
         raise HTTPException(status_code=400, detail="未提供有效的 name/package")
     try:
         data = add_entries(entries)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="未找到 apps.py，请先确认 Open-AutoGLM 路径")
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True, "size": len(data), "message": f"已写入 {len(entries)} 项到 apps.py"}

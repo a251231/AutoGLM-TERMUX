@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -138,28 +139,32 @@ def run_task_by_id(task_id: str, params: dict[str, Any] | None = None) -> list[d
 MAX_SESSIONS = 50  # 会话上限，超出则丢弃最早的
 _sessions: dict[str, list[str]] = {}
 _session_offsets: dict[str, int] = {}
+_sessions_lock = threading.Lock()
 
 
 def new_session() -> str:
     sid = uuid.uuid4().hex
-    # 控制会话总数
-    if len(_sessions) >= MAX_SESSIONS:
-        # FIFO 删除最早创建的会话
-        oldest_sid = next(iter(_sessions))
-        del _sessions[oldest_sid]
-        _session_offsets.pop(oldest_sid, None)
-    _sessions[sid] = []
-    try:
-        _session_offsets[sid] = autoglm_process.log_file().stat().st_size
-    except Exception:
-        _session_offsets[sid] = 0
+    with _sessions_lock:
+        # 控制会话总数
+        if len(_sessions) >= MAX_SESSIONS:
+            # FIFO 删除最早创建的会话
+            oldest_sid = next(iter(_sessions))
+            del _sessions[oldest_sid]
+            _session_offsets.pop(oldest_sid, None)
+        _sessions[sid] = []
+        try:
+            _session_offsets[sid] = autoglm_process.log_file().stat().st_size
+        except Exception:
+            _session_offsets[sid] = 0
     _log_line(f"[session {sid}] started")
     return sid
 
 
 def send_interactive(sid: str, text: str) -> list[str]:
-    if sid not in _sessions:
-        raise ValueError("会话不存在")
+    with _sessions_lock:
+        if sid not in _sessions:
+            raise ValueError("会话不存在")
+        offset = _session_offsets.get(sid, 0)
     st = autoglm_process.status()
     if not st.running:
         raise ValueError("AutoGLM 未在运行，请先启动")
@@ -168,7 +173,6 @@ def send_interactive(sid: str, text: str) -> list[str]:
     if not ok:
         output_lines = [f"执行失败: {msg}"]
     else:
-        offset = _session_offsets.get(sid, 0)
         collected: list[str] = []
         try:
             # 轮询几次，尽量获取完整日志片段
@@ -181,26 +185,33 @@ def send_interactive(sid: str, text: str) -> list[str]:
                     if chunk.strip():
                         break
                 time.sleep(0.25)
-            _session_offsets[sid] = offset
             output_lines = [ln for ln in collected if ln.strip()]
             if not output_lines:
                 output_lines = ["已发送，暂无新日志（可能仍在执行）"]
         except Exception as e:
             output_lines = [f"发送成功，但读取日志失败: {e}"]
     line = f"[session {sid}] {text}"
-    _sessions[sid].append(line)
-    for ln in output_lines:
-        _sessions[sid].append(f"[session {sid}] {ln}")
+    with _sessions_lock:
+        if sid not in _sessions:
+            raise ValueError("会话不存在")
+        _session_offsets[sid] = offset
+        _sessions[sid].append(line)
+        for ln in output_lines:
+            _sessions[sid].append(f"[session {sid}] {ln}")
     _log_line(line)
     for ln in output_lines:
         _log_line(f"[session {sid} output] {ln}")
-    return _sessions[sid][-20:]
+    with _sessions_lock:
+        if sid not in _sessions:
+            return []
+        return _sessions[sid][-20:]
 
 
 def get_interactive_log(sid: str) -> list[str]:
-    if sid not in _sessions:
-        return []
-    return _sessions[sid][-50:]
+    with _sessions_lock:
+        if sid not in _sessions:
+            return []
+        return _sessions[sid][-50:]
 
 
 def run_prompt_once(prompt: str, timeout_s: int = 600) -> str:

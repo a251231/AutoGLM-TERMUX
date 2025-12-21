@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -17,20 +18,39 @@ class AdbDevice:
     transport_id: str | None = None
 
 
+def _in_termux() -> bool:
+    return bool(os.environ.get("TERMUX_VERSION"))
+
+
+def _adb_not_found_message() -> str:
+    if _in_termux():
+        return "未找到 adb 命令：请在 Termux 执行 `pkg install android-tools` 后重试"
+    return "未找到 adb 命令：请先安装 ADB 并确保 adb 在 PATH 中"
+
+
 def _run_adb(args: list[str], timeout_s: int = 20) -> tuple[int, str]:
-    proc = subprocess.run(
-        ["adb", *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout_s,
-    )
-    out = (proc.stdout or "") + (proc.stderr or "")
-    return proc.returncode, out.strip()
+    try:
+        proc = subprocess.run(
+            ["adb", *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+        out = (proc.stdout or "") + (proc.stderr or "")
+        return proc.returncode, out.strip()
+    except FileNotFoundError:
+        return 127, _adb_not_found_message()
+    except subprocess.TimeoutExpired:
+        return 124, f"adb 执行超时（>{timeout_s}s）：{' '.join(['adb', *args])}"
+    except Exception as e:
+        return 1, f"adb 执行失败: {e}"
 
 
-def devices() -> list[AdbDevice]:
+def devices(*, raise_on_error: bool = False) -> list[AdbDevice]:
     code, out = _run_adb(["devices", "-l"], timeout_s=20)
     if code != 0:
+        if raise_on_error:
+            raise RuntimeError(out or "adb devices 执行失败")
         return []
     lines = [ln.strip() for ln in out.splitlines() if ln.strip()]
     if not lines:
@@ -83,12 +103,19 @@ def restart_server() -> tuple[bool, str]:
     return ok, out
 
 
-def list_packages(third_party: bool = True) -> list[str]:
+def version() -> tuple[bool, str]:
+    rc, out = _run_adb(["version"], timeout_s=8)
+    return rc == 0, out
+
+
+def list_packages(third_party: bool = True, *, raise_on_error: bool = False) -> list[str]:
     args = ["shell", "pm", "list", "packages"]
     if third_party:
         args.append("-3")
     code, out = _run_adb(args, timeout_s=30)
     if code != 0:
+        if raise_on_error:
+            raise RuntimeError(out or "adb shell pm list packages 执行失败")
         return []
     pkgs = []
     for ln in out.splitlines():
@@ -116,8 +143,10 @@ def _package_label(pkg: str) -> str | None:
     return None
 
 
-def list_packages_with_labels(third_party: bool = True, limit: int | None = None) -> list[dict[str, str]]:
-    pkgs = list_packages(third_party=third_party)
+def list_packages_with_labels(
+    third_party: bool = True, limit: int | None = None, *, raise_on_error: bool = False
+) -> list[dict[str, str]]:
+    pkgs = list_packages(third_party=third_party, raise_on_error=raise_on_error)
     if limit is not None:
         pkgs = pkgs[:limit]
     result: list[dict[str, str]] = []
@@ -159,8 +188,8 @@ def keyevent(key: str) -> tuple[bool, str]:
 def start_app(package: str, activity: str | None = None, action: str = "auto") -> tuple[bool, str]:
     # 严格限制包名/Activity 以防命令注入
     def _validate(name: str, field: str) -> None:
-        if not name or not all(ch.isalnum() or ch in "._" for ch in name):
-            raise ValueError(f"{field} 非法：仅允许字母/数字/._")
+        if not name or not all(ch.isalnum() or ch in "._$" for ch in name):
+            raise ValueError(f"{field} 非法：仅允许字母/数字/._$")
 
     _validate(package, "package")
     if activity:

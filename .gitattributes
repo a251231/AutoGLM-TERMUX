@@ -1,0 +1,19 @@
+# 统一换行符为 LF（Termux/bash 对 CRLF 非常敏感）
+* text=auto eol=lf
+
+# Windows 脚本
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# 二进制文件
+*.apk binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.zip binary
+*.gz binary
+*.tgz binary
+*.7z binary
+*.pdf binary

@@ -27,6 +27,8 @@ chmod +x install_web.sh
 AUTOGLM_HOME=$HOME/.autoglm autoglm-web run --host 0.0.0.0 --port 8000
 ```
 
+启动后终端会额外打印 `open:` 的候选访问地址（优先给出局域网 IP），页面顶部也会显示“访问:”与“自检:”信息，便于快速排错。
+
 启动时会在终端打印 `token`，也可以随时查看：
 
 ```bash
