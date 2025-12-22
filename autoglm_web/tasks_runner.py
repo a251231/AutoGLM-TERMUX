@@ -29,10 +29,92 @@ def ensure_autoglm_running() -> None:
     st = autoglm_process.status()
     if not st.running:
         cfg = read_config()
+        key = str(cfg.api_key or "").strip()
+        if not key or key in {"sk-your-apikey", "EMPTY"}:
+            raise RuntimeError(f"API Key 未配置：请在 {config_sh_path()} 填写有效密钥或通过 Web 界面保存配置")
         ok, msg = autoglm_process.start(cfg)
         _log_line(f"[autoglm] start: {msg}")
         if not ok:
             raise RuntimeError(f"启动 AutoGLM 失败: {msg}")
+
+
+def _collect_autoglm_output(
+    offset: int, *, timeout_s: int = 20, stop_on_prompt: bool = True
+) -> tuple[int, list[str]]:
+    """
+    从 AutoGLM 日志中尽量收集一次输入对应的输出片段。
+
+    stop_on_prompt=True 时，看到 "Enter your task:" 视为一次交互结束（AutoGLM 回到等待输入状态）。
+    """
+    deadline = time.time() + max(1, int(timeout_s or 20))
+    collected: list[str] = []
+    saw_any = False
+
+    while time.time() < deadline:
+        new_offset, chunk = autoglm_process.tail_log(offset)
+        offset = new_offset
+        if chunk:
+            lines = [ln for ln in chunk.splitlines() if ln.strip()]
+            if lines:
+                collected.extend(lines)
+                saw_any = True
+                if stop_on_prompt and any("Enter your task:" in ln for ln in lines):
+                    break
+        # 没有新输出：短暂等待
+        if not saw_any:
+            time.sleep(0.25)
+        else:
+            time.sleep(0.15)
+    return offset, collected
+
+
+def _is_fatal_autoglm_output(lines: list[str]) -> bool:
+    for ln in lines:
+        s = (ln or "").strip()
+        if not s:
+            continue
+        if s.startswith("Error:"):
+            return True
+        if "Traceback (most recent call last)" in s:
+            return True
+    return False
+
+
+def run_prompt_via_process(prompt: str, *, timeout_s: int = 120) -> tuple[bool, str]:
+    """
+    复用已运行的 AutoGLM 交互进程发送 prompt，作为“交互模式”的补充能力。
+    返回 (ok, output_text)。
+    """
+    ensure_autoglm_running()
+
+    # 从当前日志末尾开始收集，避免夹杂历史输出
+    try:
+        offset = autoglm_process.log_file().stat().st_size
+    except Exception:
+        offset = 0
+
+    ok, msg = autoglm_process.send_input(prompt)
+    if not ok:
+        # 进程句柄不可用时尝试自愈一次
+        if "进程句柄不可用" in (msg or ""):
+            try:
+                autoglm_process.stop()
+            except Exception:
+                pass
+            ensure_autoglm_running()
+            try:
+                offset = autoglm_process.log_file().stat().st_size
+            except Exception:
+                offset = 0
+            ok, msg = autoglm_process.send_input(prompt)
+        if not ok:
+            return False, msg or "发送失败"
+
+    offset, lines = _collect_autoglm_output(offset, timeout_s=timeout_s, stop_on_prompt=True)
+    if not lines:
+        return True, "已发送，暂无新日志（可能仍在执行），请在日志中查看"
+    out = "\n".join(lines).strip()
+    return (not _is_fatal_autoglm_output(lines)), out
 
 
 def _format(value: Any, params: dict[str, Any]) -> Any:
@@ -64,7 +146,7 @@ def run_step(step: dict[str, Any], params: dict[str, Any], *, default_device_id:
         _log_line(f"[note] {msg}")
         return True, msg
     if stype == "sleep":
-        ms = int(step.get("ms", 500))
+        ms = int(_format(step.get("ms", 500), params) or 500)
         adb.pause_ms(ms)
         return True, f"sleep {ms}ms"
     if stype == "adb_shell":
@@ -78,17 +160,17 @@ def run_step(step: dict[str, Any], params: dict[str, Any], *, default_device_id:
         _log_line(f"[adb input] {text} -> {out}")
         return ok, out
     if stype == "adb_tap":
-        x = int(step.get("x", 0))
-        y = int(step.get("y", 0))
+        x = int(_format(step.get("x", 0), params) or 0)
+        y = int(_format(step.get("y", 0), params) or 0)
         ok, out = adb.tap(x, y, device_id=device_id)
         _log_line(f"[adb tap] ({x},{y}) -> {out}")
         return ok, out
     if stype == "adb_swipe":
-        x1 = int(step.get("x1", 0))
-        y1 = int(step.get("y1", 0))
-        x2 = int(step.get("x2", 0))
-        y2 = int(step.get("y2", 0))
-        duration_ms = int(step.get("duration_ms", 300))
+        x1 = int(_format(step.get("x1", 0), params) or 0)
+        y1 = int(_format(step.get("y1", 0), params) or 0)
+        x2 = int(_format(step.get("x2", 0), params) or 0)
+        y2 = int(_format(step.get("y2", 0), params) or 0)
+        duration_ms = int(_format(step.get("duration_ms", 300), params) or 300)
         ok, out = adb.swipe(x1, y1, x2, y2, duration_ms, device_id=device_id)
         _log_line(f"[adb swipe] ({x1},{y1})->({x2},{y2}) {duration_ms}ms -> {out}")
         return ok, out
@@ -100,21 +182,18 @@ def run_step(step: dict[str, Any], params: dict[str, Any], *, default_device_id:
     if stype == "app_launch":
         package = _format(step.get("package", ""), params)
         activity = _format(step.get("activity", ""), params) or None
-        action = step.get("action", "auto")
+        action = _format(step.get("action", "auto"), params)
         ok, out = adb.start_app(package, activity, action=action, device_id=device_id)
         _log_line(f"[app launch] {package} {activity or ''} -> {out}")
         return ok, out
     if stype == "autoglm_prompt":
         text = _format(step.get("text", ""), params)
-        try:
-            output = run_prompt_once(text)
-            _log_line(f"[autoglm prompt] {text}")
-            for ln in output.splitlines():
-                _log_line(f"[autoglm prompt output] {ln}")
-            return True, output
-        except Exception as e:
-            _log_line(f"[autoglm prompt error] {e}")
-            return False, str(e)
+        timeout_s = int(_format(step.get("timeout_s", 120), params) or 120)
+        ok, output = run_prompt_via_process(text, timeout_s=timeout_s)
+        _log_line(f"[autoglm prompt] {text}")
+        for ln in (output or "").splitlines():
+            _log_line(f"[autoglm prompt output] {ln}")
+        return ok, output
     return False, f"未知步骤类型: {stype}"
 
 
@@ -137,16 +216,20 @@ def run_task_by_id(task_id: str, params: dict[str, Any] | None = None) -> list[d
         except Exception:
             default_device_id = None
     prompt = task.get("prompt", "")
-    if prompt:
-        try:
-            output = run_prompt_once(prompt)
-            results.append({"type": "autoglm_prompt", "ok": True, "output": output})
-            return results
-        except Exception as e:
-            results.append({"type": "autoglm_prompt", "ok": False, "output": str(e)})
-            return results
     steps = task.get("steps", [])
-    ensure_autoglm_running()
+    if prompt:
+        timeout_s = 600
+        try:
+            timeout_s = int(_format(params.get("timeout_s", 600), params) or 600)
+        except Exception:
+            timeout_s = 600
+        ok, out = run_prompt_via_process(str(prompt or ""), timeout_s=timeout_s)
+        results.append({"type": "autoglm_prompt", "ok": ok, "output": out})
+        return results
+
+    needs_autoglm = any(str(st.get("type", "") or "") == "autoglm_prompt" for st in (steps or []))
+    if needs_autoglm:
+        ensure_autoglm_running()
     for st in steps:
         if st.get("type") == "app":
             app_id = st.get("app_id", "")

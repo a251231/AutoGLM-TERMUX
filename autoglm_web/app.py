@@ -366,6 +366,7 @@ def index() -> str:
                 <h3 class="grow">编辑任务</h3>
                 <div class="muted" id="taskMsg"></div>
               </div>
+              <pre id="taskRunOutput" style="min-height:120px; max-height:260px;"></pre>
               <div class="grid2">
                 <div>
                   <label>任务 ID（留空则新增）</label>
@@ -864,6 +865,8 @@ function resetTaskForm() {{
   document.getElementById("task_desc").value = "";
   document.getElementById("task_prompt").value = "";
   document.getElementById("task_steps").value = "";
+  const out = document.getElementById("taskRunOutput");
+  if (out) out.textContent = "";
 }}
 
 async function saveTask() {{
@@ -913,11 +916,29 @@ async function deleteTask(id) {{
   }}
 }}
 
+function _clipText(s, maxLen) {{
+  const t = (s || "").toString();
+  const n = Math.max(200, parseInt(maxLen || 800, 10));
+  return t.length > n ? (t.slice(0, n) + "...(truncated)") : t;
+}}
+
 async function runTask(id) {{
   try {{
+    setMsg("taskMsg", "执行中…");
+    const out = document.getElementById("taskRunOutput");
+    if (out) out.textContent = "";
     const data = await apiJson(`/api/tasks/${{id}}/run`, {{ method: "POST", body: JSON.stringify({{}}) }});
-    setMsg("taskMsg", "执行完成");
-    console.log(data);
+    const results = (data && data.results) ? data.results : [];
+    const lines = [];
+    for (const r of results) {{
+      const ok = !!r.ok;
+      const t = (r.type || "step").toString();
+      const o = _clipText(r.output || "", 1200);
+      lines.push((ok ? "[OK] " : "[FAIL] ") + t + (o ? (\": \" + o) : \"\"));
+    }}
+    if (out) out.textContent = lines.join(\"\\n\\n\") || \"(无输出)\";
+    const anyFail = results.some(r => !r.ok);
+    setMsg("taskMsg", anyFail ? "执行结束（存在失败步骤）" : "执行完成");
   }} catch (e) {{
     setMsg("taskMsg", "执行失败: " + e.message);
   }}
@@ -1299,6 +1320,10 @@ def api_run_task(task_id: str, payload: dict[str, Any] | None = None, _: AuthRes
     params = payload or {}
     try:
         results = run_task_by_id(task_id, params)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True, "results": results}
