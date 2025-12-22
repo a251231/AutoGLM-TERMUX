@@ -12,8 +12,9 @@ from .adb import (
     connect_wifi as adb_connect_wifi,
     devices,
     disconnect,
-    list_packages,
     list_packages_with_labels,
+    list_packages,
+    package_icon_base64,
     pair,
     restart_server,
     screenshot_base64,
@@ -55,223 +56,401 @@ def index() -> str:
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>AutoGLM Web</title>
   <style>
-    :root {{ color-scheme: light dark; }}
-    body {{ font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; margin: 0; padding: 18px; }}
-    .wrap {{ max-width: 1100px; margin: 0 auto; }}
+    :root {{
+      color-scheme: light dark;
+      --bg: #f6f7fb;
+      --card: rgba(255, 255, 255, 0.72);
+      --border: rgba(15, 23, 42, 0.12);
+      --text: #0f172a;
+      --muted: rgba(15, 23, 42, 0.6);
+      --shadow: 0 18px 45px rgba(2, 6, 23, 0.08);
+      --primary: rgba(59, 130, 246, 0.14);
+      --primary-border: rgba(59, 130, 246, 0.35);
+      --danger: rgba(239, 68, 68, 0.12);
+    }}
+    @media (prefers-color-scheme: dark) {{
+      :root {{
+        --bg: #0b1220;
+        --card: rgba(15, 23, 42, 0.60);
+        --border: rgba(148, 163, 184, 0.18);
+        --text: rgba(226, 232, 240, 0.95);
+        --muted: rgba(148, 163, 184, 0.70);
+        --shadow: 0 18px 45px rgba(0, 0, 0, 0.42);
+        --primary: rgba(96, 165, 250, 0.14);
+        --primary-border: rgba(96, 165, 250, 0.40);
+        --danger: rgba(248, 113, 113, 0.14);
+      }}
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
+      margin: 0;
+      padding: 16px;
+      background:
+        radial-gradient(1200px 480px at 10% -10%, rgba(59, 130, 246, 0.20), rgba(0, 0, 0, 0)),
+        radial-gradient(900px 420px at 95% 0%, rgba(168, 85, 247, 0.18), rgba(0, 0, 0, 0)),
+        var(--bg);
+      color: var(--text);
+    }}
+    .wrap {{ max-width: 1240px; margin: 0 auto; }}
     .row {{ display: flex; gap: 12px; flex-wrap: wrap; }}
-    .card {{ border: 1px solid rgba(128,128,128,.35); border-radius: 10px; padding: 14px; flex: 1; min-width: 320px; }}
-    label {{ display:block; font-size: 12px; opacity:.8; margin-top:10px; }}
-    input, textarea {{ width: 100%; padding: 10px; border-radius: 8px; border: 1px solid rgba(128,128,128,.35); background: transparent; }}
-    button {{ padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(128,128,128,.35); background: transparent; cursor: pointer; }}
-    button.primary {{ background: rgba(0, 120, 255, .15); }}
-    button.danger {{ background: rgba(255, 0, 0, .12); }}
-    .muted {{ opacity: .75; font-size: 12px; }}
-    pre {{ white-space: pre-wrap; word-break: break-word; border: 1px solid rgba(128,128,128,.35); border-radius: 10px; padding: 12px; min-height: 220px; max-height: 420px; overflow: auto; }}
+    .stack {{ display: flex; flex-direction: column; gap: 12px; }}
+    .grid2 {{ display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }}
+    @media (max-width: 980px) {{ .grid2 {{ grid-template-columns: 1fr; }} }}
+    .card {{
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 14px;
+      background: var(--card);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(10px);
+    }}
+    .title {{ margin: 0; font-size: 20px; line-height: 1.2; }}
+    .muted {{ opacity: 1; color: var(--muted); font-size: 12px; }}
+    .topbar {{ display: flex; gap: 12px; flex-wrap: wrap; align-items: stretch; }}
+    .brand {{ flex: 1; min-width: 260px; }}
+    .tokenCard {{ flex: 1; min-width: 360px; }}
+    .layout {{ display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 12px; margin-top: 12px; }}
+    @media (max-width: 980px) {{
+      .layout {{ grid-template-columns: 1fr; }}
+    }}
+    .sidebar {{ position: sticky; top: 12px; align-self: start; padding: 10px; }}
+    @media (max-width: 980px) {{
+      .sidebar {{ position: static; }}
+    }}
+    .navTitle {{ margin: 0 0 8px 0; font-size: 12px; }}
+    .nav {{ display: flex; flex-direction: column; gap: 6px; }}
+    @media (max-width: 980px) {{
+      .nav {{ flex-direction: row; overflow-x: auto; padding-bottom: 4px; }}
+    }}
+    .navbtn {{
+      width: 100%;
+      text-align: left;
+      padding: 10px 10px;
+      border-radius: 12px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+      user-select: none;
+      white-space: nowrap;
+    }}
+    .navbtn:hover {{ border-color: var(--border); }}
+    .navbtn.active {{ background: var(--primary); border-color: var(--primary-border); }}
+    label {{ display: block; font-size: 12px; color: var(--muted); margin-top: 10px; }}
+    input, textarea, select {{
+      width: 100%;
+      padding: 10px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: inherit;
+      outline: none;
+    }}
+    textarea {{ resize: vertical; }}
+    button {{
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: inherit;
+      cursor: pointer;
+    }}
+    button.primary {{ background: var(--primary); border-color: var(--primary-border); }}
+    button.danger {{ background: var(--danger); }}
+    pre {{
+      white-space: pre-wrap;
+      word-break: break-word;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 12px;
+      min-height: 220px;
+      max-height: 520px;
+      overflow: auto;
+      background: rgba(0, 0, 0, 0.03);
+    }}
+    @media (prefers-color-scheme: dark) {{
+      pre {{ background: rgba(255, 255, 255, 0.03); }}
+    }}
     table {{ width: 100%; border-collapse: collapse; }}
-    th, td {{ border-bottom: 1px solid rgba(128,128,128,.25); padding: 8px; text-align: left; font-size: 13px; }}
-    .pill {{ display:inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(128,128,128,.35); font-size: 12px; }}
+    th, td {{ border-bottom: 1px solid var(--border); padding: 8px; text-align: left; font-size: 13px; }}
+    th {{ color: var(--muted); font-weight: 600; }}
+    .pill {{ display:inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); font-size: 12px; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
-    .screenWrap {{ position: relative; display: inline-block; max-width: 520px; width: 100%; }}
-    .screenImg {{ display:block; width: 100%; height: auto; border: 1px solid rgba(128,128,128,.35); border-radius: 10px; cursor: pointer; }}
+    .tab {{ display: none; }}
+    .tab.active {{ display: block; }}
+    .cardHead {{ display:flex; align-items:center; gap: 10px; flex-wrap: wrap; }}
+    .cardHead h3 {{ margin: 0; font-size: 15px; }}
+    .cardHead .grow {{ flex: 1; min-width: 180px; }}
+    .pkgIcon {{ width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); object-fit: cover; display: block; }}
+    .screenWrap {{ position: relative; display: inline-block; max-width: 720px; width: 100%; }}
+    .screenImg {{ display:block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 14px; cursor: pointer; }}
     @keyframes ripple {{ 0% {{ transform: translate(-50%, -50%) scale(.2); opacity: 1; }} 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0; }} }}
-    .ripple-circle {{ position: absolute; width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(0, 120, 255, .8); background: rgba(0, 120, 255, .12); animation: ripple 520ms ease-out; pointer-events: none; }}
+    .ripple-circle {{ position: absolute; width: 64px; height: 64px; border-radius: 50%; border: 2px solid var(--primary-border); background: var(--primary); animation: ripple 520ms ease-out; pointer-events: none; }}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h2 style="margin:0 0 6px 0;">AutoGLM Web <span class="muted">v{__version__}</span></h2>
-    <div class="muted" id="serverInfo"></div>
-    <div class="muted" id="checkMsg"></div>
-
-    <div class="card" style="margin-top:12px;">
-      <div class="row" style="align-items:end;">
-        <div style="flex:1; min-width:240px;">
-          <label>管理 Token（首次运行后由 autoglm-web 生成）</label>
-          <input id="token" placeholder="粘贴 Token（将保存在本浏览器 localStorage）" />
-        </div>
-        <div style="display:flex; gap:8px;">
-          <button class="primary" onclick="saveToken()">保存 Token</button>
-          <button onclick="clearToken()">清除</button>
-          <button onclick="refreshAll()">刷新全部</button>
-        </div>
-      </div>
-      <div class="muted">
-        安全提示：不要把 Token 发给任何人；如怀疑泄露，请在 Termux 执行 <code>autoglm-web reset-token</code>。
-      </div>
-    </div>
-
-    <div class="row" style="margin-top:12px;">
-      <div class="card">
-        <h3 style="margin-top:0;">配置</h3>
-        <label>Base URL</label>
-        <input id="base_url" />
-        <label>Model</label>
-        <input id="model" />
-        <label>API Key</label>
-        <input id="api_key" placeholder="为空则保持不变" />
-        <div class="muted" id="apiKeyHint"></div>
-        <label>Max Steps</label>
-        <input id="max_steps" />
-        <label>语言 (cn/en)</label>
-        <input id="lang" />
-        <label>Device ID（留空自动检测）</label>
-        <input id="device_id" />
-        <div class="row" style="margin-top:12px;">
-          <button class="primary" onclick="saveConfig()">保存配置</button>
-          <button onclick="loadConfig()">重新加载</button>
-        </div>
-        <div class="muted" id="configMsg"></div>
+    <div class="topbar">
+      <div class="brand">
+        <h1 class="title">AutoGLM Web <span class="muted">v{__version__}</span></h1>
+        <div class="muted" id="serverInfo"></div>
+        <div class="muted" id="checkMsg"></div>
       </div>
 
-      <div class="card">
-        <h3 style="margin-top:0;">ADB 管理</h3>
+      <div class="card tokenCard">
+        <div class="cardHead">
+          <h3 class="grow">访问控制</h3>
+          <button class="primary" onclick="refreshAll()">刷新全部</button>
+        </div>
+        <label>管理 Token（首次运行后由 autoglm-web 生成）</label>
         <div class="row" style="align-items:end;">
-          <div style="flex:1; min-width:240px;">
-            <label>配对 IP:Port（Wireless Debugging 配对弹窗）</label>
-            <input id="pair_host" placeholder="例如 192.168.1.13:42379" />
+          <div style="flex:1; min-width:220px;">
+            <input id="token" placeholder="粘贴 Token（将保存在本浏览器 localStorage）" />
           </div>
-          <div style="width:180px;">
-            <label>配对码</label>
-            <input id="pair_code" placeholder="6 位数字" />
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="primary" onclick="saveToken()">保存 Token</button>
+            <button onclick="clearToken()">清除</button>
           </div>
-          <button class="primary" onclick="adbPair()">配对</button>
         </div>
-        <div class="row" style="align-items:end; margin-top:10px;">
-          <div style="flex:1; min-width:240px;">
-            <label>连接 IP:Port（Wireless Debugging 主界面）</label>
-            <input id="connect_host" placeholder="例如 192.168.1.13:5555" />
-          </div>
-          <button class="primary" onclick="adbConnect()">连接</button>
-          <button onclick="adbDisconnectAll()">断开全部</button>
-          <button onclick="adbRestart()">重启 ADB 服务</button>
-          <button onclick="adbConnectWifi()">USB→WiFi</button>
-        </div>
+        <div class="muted">安全提示：不要把 Token 发给任何人；如怀疑泄露，请在 Termux 执行 <code>autoglm-web reset-token</code>。</div>
+      </div>
+    </div>
 
-        <div style="margin-top:12px;">
-          <div class="row" style="align-items:center;">
-            <h4 style="margin:0; flex:1;">设备列表</h4>
-            <button onclick="loadDevices()">刷新</button>
-          </div>
-          <table>
-            <thead>
-              <tr><th>Serial</th><th>Status</th><th>Model</th><th>操作</th></tr>
-            </thead>
-            <tbody id="devicesBody"></tbody>
-          </table>
+    <div class="layout">
+      <aside class="card sidebar">
+        <div class="navTitle muted">功能区域</div>
+        <div class="nav">
+          <button class="navbtn" data-tab="config" onclick="showTab('config')">配置</button>
+          <button class="navbtn" data-tab="adb" onclick="showTab('adb')">设备 / ADB</button>
+          <button class="navbtn" data-tab="screen" onclick="showTab('screen')">屏幕预览</button>
+          <button class="navbtn" data-tab="tasks" onclick="showTab('tasks')">任务</button>
+          <button class="navbtn" data-tab="run" onclick="showTab('run')">运行 / 日志</button>
+          <button class="navbtn" data-tab="interactive" onclick="showTab('interactive')">交互</button>
         </div>
-        <div class="muted" id="adbMsg"></div>
+      </aside>
 
-        <div style="margin-top:12px;">
-          <div class="row" style="align-items:center;">
-            <h4 style="margin:0; flex:1;">已安装应用（第三方）</h4>
-            <button onclick="fetchPackages()">获取包名+名称</button>
-          </div>
-          <div class="row" style="margin-top:8px; align-items:end;">
-            <div style="flex:1; min-width:200px;">
-              <label>选择应用</label>
-              <select id="pkg_select" style="width:100%; padding:8px; border-radius:8px;"></select>
+      <main class="stack">
+        <div class="tab" id="tab-config">
+          <div class="card">
+            <div class="cardHead">
+              <h3 class="grow">配置</h3>
+              <div class="muted" id="configMsg"></div>
             </div>
-            <div style="flex:1; min-width:200px;">
-              <label>应用名称（可选，默认使用检测到的名称或包名）</label>
-              <input id="pkg_name" placeholder="例如 微信" />
+            <label>Base URL</label>
+            <input id="base_url" />
+            <label>Model</label>
+            <input id="model" />
+            <label>API Key</label>
+            <input id="api_key" placeholder="为空则保持不变" />
+            <div class="muted" id="apiKeyHint"></div>
+            <div class="grid2">
+              <div>
+                <label>Max Steps</label>
+                <input id="max_steps" />
+              </div>
+              <div>
+                <label>语言 (cn/en)</label>
+                <input id="lang" />
+              </div>
             </div>
-            <button class="primary" onclick="addToAppsConfig()">添加到 apps.py</button>
+            <label>Device ID（留空自动检测）</label>
+            <input id="device_id" />
+            <div class="row" style="margin-top:12px;">
+              <button class="primary" onclick="saveConfig()">保存配置</button>
+              <button onclick="loadConfig()">重新加载</button>
+            </div>
           </div>
-          <div class="muted" id="pkgMsg"></div>
         </div>
 
-      </div>
-    </div>
+        <div class="tab" id="tab-adb">
+          <div class="stack">
+            <div class="card">
+              <div class="cardHead">
+                <h3 class="grow">设备 / ADB</h3>
+                <div class="muted" id="adbMsg"></div>
+              </div>
+              <div class="grid2">
+                <div>
+                  <label>配对 IP:Port（Wireless Debugging 配对弹窗）</label>
+                  <div class="row" style="align-items:end;">
+                    <div style="flex:1; min-width:220px;">
+                      <input id="pair_host" placeholder="例如 192.168.1.13:42379" />
+                    </div>
+                    <div style="width:160px;">
+                      <label style="margin-top:0;">配对码</label>
+                      <input id="pair_code" placeholder="6 位数字" />
+                    </div>
+                    <button class="primary" onclick="adbPair()">配对</button>
+                  </div>
+                </div>
+                <div>
+                  <label>连接 IP:Port（Wireless Debugging 主界面）</label>
+                  <div class="row" style="align-items:end;">
+                    <div style="flex:1; min-width:220px;">
+                      <input id="connect_host" placeholder="例如 192.168.1.13:5555" />
+                    </div>
+                    <button class="primary" onclick="adbConnect()">连接</button>
+                    <button onclick="adbConnectWifi()">USB→WiFi</button>
+                    <button onclick="adbDisconnectAll()">断开全部</button>
+                    <button onclick="adbRestart()">重启 ADB</button>
+                  </div>
+                </div>
+              </div>
+            </div>
 
-    <div class="card" style="margin-top:12px;">
-      <div class="row" style="align-items:center;">
-        <h3 style="margin-top:0; flex:1;">屏幕预览</h3>
-        <button onclick="refreshScreenshot()">刷新</button>
-        <button onclick="toggleScreenAuto()" id="screenAutoBtn">自动刷新</button>
-      </div>
-      <div class="muted" id="screenMsg"></div>
-      <div class="screenWrap" id="screenWrap">
-        <img id="screenImg" class="screenImg" alt="screen" />
-      </div>
-      <div class="muted">提示：点击图片发送 tap（使用当前选中设备），用于快速确认执行进度。</div>
-    </div>
+            <div class="card">
+              <div class="cardHead">
+                <h3 class="grow">设备列表</h3>
+                <button onclick="loadDevices()">刷新</button>
+              </div>
+              <table>
+                <thead>
+                  <tr><th>Serial</th><th>Status</th><th>Model</th><th>操作</th></tr>
+                </thead>
+                <tbody id="devicesBody"></tbody>
+              </table>
+              <div class="muted">提示：点“选用”会写入配置的 Device ID，供任务/点击/截图等统一使用。</div>
+            </div>
 
-    <div class="card" style="margin-top:12px;">
-      <h3 style="margin-top:0;">任务（可自定义步骤或直接用自然语言）</h3>
-      <div class="row">
-        <div style="flex:1; min-width:200px;">
-          <label>任务 ID（留空则新增）</label>
-          <input id="task_id" placeholder="留空代表新任务" />
+            <div class="card">
+              <div class="cardHead">
+                <h3 class="grow">已安装应用（第三方）</h3>
+                <button onclick="fetchPackages()">获取包名+图标</button>
+                <button onclick="loadMoreIcons()">加载更多图标</button>
+              </div>
+              <div class="grid2">
+                <div>
+                  <label>已选包名</label>
+                  <input id="pkg_selected" placeholder="点击下方列表的“选择”" readonly />
+                </div>
+                <div>
+                  <label>应用名称（可选，默认使用包名）</label>
+                  <input id="pkg_name" placeholder="例如 微信" />
+                </div>
+              </div>
+              <div class="row" style="margin-top:10px;">
+                <button class="primary" onclick="addToAppsConfig()">添加到 apps.py</button>
+              </div>
+              <div class="muted" id="pkgMsg"></div>
+              <table style="margin-top:10px;">
+                <thead><tr><th style="width:48px;">图标</th><th>Package</th><th style="width:90px;">操作</th></tr></thead>
+                <tbody id="packagesBody"></tbody>
+              </table>
+              <div class="muted">说明：图标通过 ADB 从设备 APK 中提取，部分应用可能没有可导出的 PNG 图标（会显示占位）。</div>
+            </div>
+          </div>
         </div>
-        <div style="flex:1; min-width:200px;">
-          <label>名称</label>
-          <input id="task_name" />
-        </div>
-      </div>
-      <label>描述</label>
-      <input id="task_desc" />
-      <label>自然语言指令（可选，填了则直接调用模型执行，无需写步骤）</label>
-      <textarea id="task_prompt" rows="3" placeholder="例如：打开微信并给张三发一条消息"></textarea>
-      <label>步骤（JSON 数组，支持 adb_shell/adb_input/adb_tap/adb_swipe/adb_keyevent/app_launch/sleep/autoglm_prompt/note）</label>
-      <textarea id="task_steps" rows="6" placeholder='[{{"type":"adb_input","text":"Hello"}}]'></textarea>
-      <div class="row" style="margin-top:10px;">
-        <button class="primary" onclick="saveTask()">保存/更新</button>
-        <button onclick="resetTaskForm()">清空表单</button>
-        <button onclick="loadTasks()">刷新列表</button>
-      </div>
-      <div class="muted" id="taskMsg"></div>
-      <table style="margin-top:10px;">
-        <thead><tr><th>ID</th><th>名称</th><th>操作</th></tr></thead>
-        <tbody id="tasksBody"></tbody>
-      </table>
-    </div>
 
-    <div class="row" style="margin-top:12px;">
-      <div class="card">
-        <h3 style="margin-top:0;">运行</h3>
-        <div class="row">
-          <button class="primary" onclick="autoglmStart()">启动 AutoGLM</button>
-          <button class="danger" onclick="autoglmStop()">停止 AutoGLM</button>
-          <button onclick="autoglmStatus()">刷新状态</button>
+        <div class="tab" id="tab-screen">
+          <div class="card">
+            <div class="cardHead">
+              <h3 class="grow">屏幕预览</h3>
+              <button onclick="refreshScreenshot()">刷新</button>
+              <button onclick="toggleScreenAuto()" id="screenAutoBtn">自动刷新</button>
+            </div>
+            <div class="muted" id="screenMsg"></div>
+            <div class="screenWrap" id="screenWrap">
+              <img id="screenImg" class="screenImg" alt="screen" />
+            </div>
+            <div class="muted">提示：点击图片发送 tap；自动刷新会在页面隐藏时降频，并在失败时退避。</div>
+          </div>
         </div>
-        <div style="margin-top:10px;">
-          <span class="pill" id="runPill">unknown</span>
-          <span class="muted" id="runMsg"></span>
-        </div>
-      </div>
 
-      <div class="card">
-        <h3 style="margin-top:0;">日志</h3>
-        <div class="row" style="align-items:center;">
-          <button onclick="clearLogView()">清屏</button>
-          <button onclick="toggleFollow()" id="followBtn">暂停滚动</button>
-          <span class="muted">自动轮询（本页不把 Token 放到 URL）</span>
-        </div>
-        <pre id="logBox"></pre>
-      </div>
-    </div>
+        <div class="tab" id="tab-tasks">
+          <div class="stack">
+            <div class="card">
+              <div class="cardHead">
+                <h3 class="grow">编辑任务</h3>
+                <div class="muted" id="taskMsg"></div>
+              </div>
+              <div class="grid2">
+                <div>
+                  <label>任务 ID（留空则新增）</label>
+                  <input id="task_id" placeholder="留空代表新任务" />
+                </div>
+                <div>
+                  <label>名称</label>
+                  <input id="task_name" />
+                </div>
+              </div>
+              <label>描述</label>
+              <input id="task_desc" />
+              <label>自然语言指令（可选，填了则直接调用模型执行，无需写步骤）</label>
+              <textarea id="task_prompt" rows="3" placeholder="例如：打开微信并给张三发一条消息"></textarea>
+              <label>步骤（JSON 数组，支持 adb_shell/adb_input/adb_tap/adb_swipe/adb_keyevent/app_launch/sleep/autoglm_prompt/note）</label>
+              <textarea id="task_steps" rows="7" placeholder='[{{"type":"adb_input","text":"Hello"}}]'></textarea>
+              <div class="row" style="margin-top:10px;">
+                <button class="primary" onclick="saveTask()">保存/更新</button>
+                <button onclick="resetTaskForm()">清空表单</button>
+              </div>
+              <div class="muted">提示：如需指定设备，可在每个 step 里加 `device_id` 字段覆盖默认设备。</div>
+            </div>
 
-    <div class="row" style="margin-top:12px;">
-      <div class="card">
-        <h3 style="margin-top:0;">交互模式（仅记录日志片段）</h3>
-        <div class="row" style="align-items:end;">
-          <button class="primary" onclick="startSession()">新建会话</button>
-          <div class="muted" id="sessionLabel" style="margin-left:8px;">尚未创建</div>
+            <div class="card">
+              <div class="cardHead">
+                <h3 class="grow">任务列表</h3>
+                <button onclick="loadTasks()">刷新列表</button>
+              </div>
+              <table>
+                <thead><tr><th>ID</th><th>名称</th><th>操作</th></tr></thead>
+                <tbody id="tasksBody"></tbody>
+              </table>
+            </div>
+          </div>
         </div>
-        <label>发送内容</label>
-        <input id="session_input" placeholder="输入指令/备注，将写入日志并保持 AutoGLM 运行" />
-        <div class="row" style="margin-top:8px;">
-          <button onclick="sendSession()">发送</button>
-          <button onclick="loadSessionLog()">刷新日志</button>
+
+        <div class="tab" id="tab-run">
+          <div class="grid2">
+            <div class="card">
+              <div class="cardHead">
+                <h3 class="grow">运行</h3>
+                <span class="pill" id="runPill">unknown</span>
+              </div>
+              <div class="row" style="margin-top:6px;">
+                <button class="primary" onclick="autoglmStart()">启动 AutoGLM</button>
+                <button class="danger" onclick="autoglmStop()">停止 AutoGLM</button>
+                <button onclick="autoglmStatus()">刷新状态</button>
+              </div>
+              <div class="muted" id="runMsg" style="margin-top:10px;"></div>
+            </div>
+
+            <div class="card">
+              <div class="cardHead">
+                <h3 class="grow">日志</h3>
+                <button onclick="clearLogView()">清屏</button>
+                <button onclick="toggleFollow()" id="followBtn">暂停滚动</button>
+              </div>
+              <div class="muted">自动轮询（本页不把 Token 放到 URL）</div>
+              <pre id="logBox"></pre>
+            </div>
+          </div>
         </div>
-        <pre id="sessionLog" style="min-height:160px; max-height:260px;"></pre>
-        <div class="muted" id="sessionMsg"></div>
-      </div>
+
+        <div class="tab" id="tab-interactive">
+          <div class="card">
+            <div class="cardHead">
+              <h3 class="grow">交互模式（仅记录日志片段）</h3>
+              <button class="primary" onclick="startSession()">新建会话</button>
+            </div>
+            <div class="muted" id="sessionLabel">尚未创建</div>
+            <label>发送内容</label>
+            <input id="session_input" placeholder="输入指令/备注，将写入日志并保持 AutoGLM 运行" />
+            <div class="row" style="margin-top:8px;">
+              <button onclick="sendSession()">发送</button>
+              <button onclick="loadSessionLog()">刷新日志</button>
+            </div>
+            <pre id="sessionLog" style="min-height:160px; max-height:320px;"></pre>
+            <div class="muted" id="sessionMsg"></div>
+          </div>
+        </div>
+      </main>
     </div>
   </div>
 
 <script>
 const LS_TOKEN_KEY = "autoglm_web_token";
+const LS_TAB_KEY = "autoglm_web_tab";
 let logOffset = 0;
 let follow = true;
 let sessionId = "";
@@ -281,10 +460,30 @@ let screenTimer = 0;
 let screenMeta = {{ width: 0, height: 0, device_id: "" }};
 let screenFailCount = 0;
 let screenTapInflight = false;
+let packagesCache = [];
+let iconCursor = 0;
+const pkgIconCache = new Map();
 
 function authHeader() {{
   const t = localStorage.getItem(LS_TOKEN_KEY) || "";
   return t ? {{ "Authorization": "Bearer " + t }} : {{}};
+}}
+
+function showTab(name) {{
+  const id = "tab-" + name;
+  document.querySelectorAll(".tab").forEach(el => {{
+    el.classList.toggle("active", el.id === id);
+  }});
+  document.querySelectorAll(".navbtn").forEach(btn => {{
+    btn.classList.toggle("active", btn.dataset.tab === name);
+  }});
+  try {{ localStorage.setItem(LS_TAB_KEY, name); }} catch (e) {{ }}
+}}
+
+function initTabs() {{
+  const saved = (localStorage.getItem(LS_TAB_KEY) || "").trim();
+  const name = saved || "screen";
+  showTab(name);
 }}
 
 function hasToken() {{
@@ -752,23 +951,16 @@ async function fetchPackages() {{
   try {{
     const data = await apiJson("/api/adb/packages");
     const pkgs = data.packages || [];
-    const sel = document.getElementById("pkg_select");
-    sel.innerHTML = "";
-    pkgs.forEach(p => {{
-      const opt = document.createElement("option");
-      opt.value = p.package;
-      opt.textContent = (p.label ? (p.label + " - " + p.package) : p.package);
-      sel.appendChild(opt);
-    }});
-    setMsg("pkgMsg", "已获取 " + pkgs.length + " 个包名");
+    renderPackages(pkgs);
+    setMsg("pkgMsg", "已获取 " + pkgs.length + " 个包名（默认加载一小批图标，可点“加载更多图标”）");
+    await loadMoreIcons();
   }} catch (e) {{
     setMsg("pkgMsg", "获取失败: " + e.message);
   }}
 }}
 
 async function addToAppsConfig() {{
-  const sel = document.getElementById("pkg_select");
-  const pkg = sel.value;
+  const pkg = (document.getElementById("pkg_selected").value || "").trim();
   if (!pkg) {{
     setMsg("pkgMsg", "请先获取并选择包名");
     return;
@@ -780,6 +972,85 @@ async function addToAppsConfig() {{
     setMsg("pkgMsg", data.message || "已写入 apps.py");
   }} catch (e) {{
     setMsg("pkgMsg", "写入失败: " + e.message);
+  }}
+}}
+
+function _pkgPlaceholderSvg(text) {{
+  const t = (text || "?").slice(0, 2);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56">\n<defs>\n<linearGradient id="g" x1="0" y1="0" x2="1" y2="1">\n<stop offset="0" stop-color="#60a5fa"/>\n<stop offset="1" stop-color="#a78bfa"/>\n</linearGradient>\n</defs>\n<rect width="56" height="56" rx="14" fill="url(#g)"/>\n<text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui,Segoe UI,Roboto" font-size="18" fill="rgba(255,255,255,0.95)">${t}</text>\n</svg>`;
+  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+}}
+
+function renderPackages(list) {{
+  packagesCache = list || [];
+  iconCursor = 0;
+  const body = document.getElementById("packagesBody");
+  body.textContent = "";
+  document.getElementById("pkg_selected").value = "";
+  for (const it of packagesCache) {{
+    const pkg = it.package || "";
+    const tr = document.createElement("tr");
+
+    const tdIcon = document.createElement("td");
+    const img = document.createElement("img");
+    img.className = "pkgIcon";
+    img.src = _pkgPlaceholderSvg(pkg.split(".").pop() || "app");
+    img.dataset.pkg = pkg;
+    tdIcon.appendChild(img);
+    tr.appendChild(tdIcon);
+
+    const tdPkg = document.createElement("td");
+    tdPkg.textContent = pkg;
+    tr.appendChild(tdPkg);
+
+    const tdOps = document.createElement("td");
+    const btn = document.createElement("button");
+    btn.textContent = "选择";
+    btn.onclick = () => selectPackage(pkg);
+    tdOps.appendChild(btn);
+    tr.appendChild(tdOps);
+
+    body.appendChild(tr);
+  }}
+}}
+
+function selectPackage(pkg) {{
+  document.getElementById("pkg_selected").value = pkg || "";
+  setMsg("pkgMsg", "已选择: " + (pkg || ""));
+  loadIconFor(pkg);
+}}
+
+async function loadIconFor(pkg) {{
+  if (!pkg) return;
+  if (pkgIconCache.has(pkg)) {{
+    const b64 = pkgIconCache.get(pkg) || "";
+    const img = document.querySelector(`img[data-pkg='${pkg}']`);
+    if (img && b64) img.src = "data:image/png;base64," + b64;
+    return;
+  }}
+  try {{
+    const data = await apiJson("/api/adb/package/icon?package=" + encodeURIComponent(pkg));
+    const b64 = data.image_base64 || "";
+    if (b64) {{
+      pkgIconCache.set(pkg, b64);
+      const img = document.querySelector(`img[data-pkg='${pkg}']`);
+      if (img) img.src = "data:image/png;base64," + b64;
+    }}
+  }} catch (e) {{
+    // 404/不支持则保持占位
+  }}
+}}
+
+async function loadMoreIcons() {{
+  const batch = 20;
+  const end = Math.min(packagesCache.length, iconCursor + batch);
+  const slice = packagesCache.slice(iconCursor, end);
+  iconCursor = end;
+  for (const it of slice) {{
+    await loadIconFor(it.package || "");
+  }}
+  if (packagesCache.length) {{
+    setMsg("pkgMsg", `图标加载进度: ${iconCursor}/${packagesCache.length}`);
   }}
 }}
 
@@ -895,6 +1166,7 @@ async function loadServerInfo() {{
 document.getElementById("token").value = localStorage.getItem(LS_TOKEN_KEY) || "";
 const screenImgEl = document.getElementById("screenImg");
 if (screenImgEl) screenImgEl.addEventListener("click", onScreenClick);
+initTabs();
 document.addEventListener("visibilitychange", () => {{
   if (!screenAuto) return;
   if (document.visibilityState === "visible") {{
@@ -1017,15 +1289,39 @@ def adb_packages(limit: int | None = None, _: AuthResult = Depends(require_token
     if not device_id:
         raise HTTPException(status_code=400, detail="未选择设备（请先在设备列表中点“选用”）")
     try:
-        pkgs = list_packages_with_labels(
-            third_party=True,
-            limit=limit,
-            device_id=device_id,
-            raise_on_error=True,
-        )
+        pkgs = list_packages(third_party=True, device_id=device_id, raise_on_error=True)[:limit]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return {"packages": pkgs}
+    return {"packages": [{"package": p} for p in pkgs], "device_id": device_id, "count": len(pkgs)}
+
+
+@app.get("/api/adb/package/icon")
+def adb_package_icon(package: str, _: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    pkg = str(package or "").strip()
+    if not pkg:
+        raise HTTPException(status_code=400, detail="package 不能为空")
+    cfg = read_config()
+    device_id = (cfg.device_id or "").strip() or None
+    if not device_id:
+        ds = devices(raise_on_error=False)
+        for d in ds:
+            if d.status == "device":
+                device_id = d.serial
+                break
+    if not device_id:
+        raise HTTPException(status_code=400, detail="未选择设备（请先在设备列表中点“选用”）")
+
+    ok, b64, meta, msg = package_icon_base64(pkg, device_id=device_id)
+    if not ok or not b64:
+        raise HTTPException(status_code=404, detail=msg or "icon not found")
+    return {
+        "ok": True,
+        "device_id": device_id,
+        "package": pkg,
+        "image_base64": b64,
+        "width": meta.get("width"),
+        "height": meta.get("height"),
+    }
 
 # 写入 apps.py
 @app.post("/api/adb/packages/add")
