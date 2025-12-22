@@ -977,7 +977,7 @@ async function addToAppsConfig() {{
 
 function _pkgPlaceholderSvg(text) {{
   const t = (text || "?").slice(0, 2);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56">\n<defs>\n<linearGradient id="g" x1="0" y1="0" x2="1" y2="1">\n<stop offset="0" stop-color="#60a5fa"/>\n<stop offset="1" stop-color="#a78bfa"/>\n</linearGradient>\n</defs>\n<rect width="56" height="56" rx="14" fill="url(#g)"/>\n<text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui,Segoe UI,Roboto" font-size="18" fill="rgba(255,255,255,0.95)">${t}</text>\n</svg>`;
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56">\n<defs>\n<linearGradient id="g" x1="0" y1="0" x2="1" y2="1">\n<stop offset="0" stop-color="#60a5fa"/>\n<stop offset="1" stop-color="#a78bfa"/>\n</linearGradient>\n</defs>\n<rect width="56" height="56" rx="14" fill="url(#g)"/>\n<text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui,Segoe UI,Roboto" font-size="18" fill="rgba(255,255,255,0.95)">${{t}}</text>\n</svg>`;
   return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
 }}
 
@@ -1024,7 +1024,7 @@ async function loadIconFor(pkg) {{
   if (!pkg) return;
   if (pkgIconCache.has(pkg)) {{
     const b64 = pkgIconCache.get(pkg) || "";
-    const img = document.querySelector(`img[data-pkg='${pkg}']`);
+    const img = document.querySelector(`img[data-pkg='${{pkg}}']`);
     if (img && b64) img.src = "data:image/png;base64," + b64;
     return;
   }}
@@ -1033,7 +1033,7 @@ async function loadIconFor(pkg) {{
     const b64 = data.image_base64 || "";
     if (b64) {{
       pkgIconCache.set(pkg, b64);
-      const img = document.querySelector(`img[data-pkg='${pkg}']`);
+      const img = document.querySelector(`img[data-pkg='${{pkg}}']`);
       if (img) img.src = "data:image/png;base64," + b64;
     }}
   }} catch (e) {{
@@ -1050,7 +1050,7 @@ async function loadMoreIcons() {{
     await loadIconFor(it.package || "");
   }}
   if (packagesCache.length) {{
-    setMsg("pkgMsg", `图标加载进度: ${iconCursor}/${packagesCache.length}`);
+    setMsg("pkgMsg", `图标加载进度: ${{iconCursor}}/${{packagesCache.length}}`);
   }}
 }}
 
