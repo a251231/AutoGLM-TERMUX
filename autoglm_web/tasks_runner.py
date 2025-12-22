@@ -242,6 +242,23 @@ def run_prompt_once(prompt: str, timeout_s: int = 600) -> str:
     cfg = read_config()
     if not cfg.api_key or cfg.api_key == "sk-your-apikey":
         raise RuntimeError(f"API Key 未配置：请在 {config_sh_path()} 填写有效密钥或通过 Web 界面保存配置")
+
+    resolved_device_id = str(cfg.device_id or "").strip()
+    if not resolved_device_id:
+        try:
+            ds = adb.devices(raise_on_error=False)
+            online = [d.serial for d in ds if d.status == "device"]
+            if len(online) == 1:
+                resolved_device_id = online[0]
+            elif len(online) > 1:
+                raise RuntimeError("检测到多个在线设备：请先在 Web 配置中选择设备（设备列表点“选用”）")
+            else:
+                raise RuntimeError("未检测到在线设备：请先通过 ADB 配对/连接，并确认设备状态为 device")
+        except RuntimeError:
+            raise
+        except Exception:
+            resolved_device_id = ""
+
     workdir = _autoglm_dir()
     if not workdir.exists():
         raise RuntimeError(f"未找到 Open-AutoGLM 目录: {workdir}")
@@ -255,8 +272,8 @@ def run_prompt_once(prompt: str, timeout_s: int = 600) -> str:
         "--apikey",
         cfg.api_key,
     ]
-    if cfg.device_id:
-        args += ["--device-id", cfg.device_id]
+    if resolved_device_id:
+        args += ["--device-id", resolved_device_id]
     if str(cfg.max_steps).strip():
         args += ["--max-steps", str(cfg.max_steps)]
     if cfg.lang:

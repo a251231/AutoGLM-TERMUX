@@ -836,6 +836,7 @@ async function loadChecks() {{
     if (data.adb && !data.adb.ok) items.push("ADB: " + (data.adb.message || "异常"));
     if (data.autoglm_dir && !data.autoglm_dir.ok) items.push("Open-AutoGLM: " + (data.autoglm_dir.message || "异常"));
     if (data.config && !data.config.ok) items.push("配置: " + (data.config.message || "异常"));
+    if (data.device && !data.device.ok) items.push("设备: " + (data.device.message || "异常"));
     setMsg("checkMsg", items.length ? ("自检: " + items.join(" | ")) : "自检: OK");
   }} catch (e) {{
     // 没有 Token 时会报错，忽略即可
@@ -902,10 +903,28 @@ def checks(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
     cfg = read_config()
     ok_cfg = bool(cfg.api_key and cfg.api_key != "sk-your-apikey")
     cfg_msg = "已配置" if ok_cfg else "API Key 未配置（请在 Web 配置中填写并保存）"
+
+    # 设备自检：未选设备且多设备在线时，任务/交互模式可能失败
+    try:
+        ds = devices(raise_on_error=False)
+        online = [d.serial for d in ds if d.status == "device"]
+    except Exception:
+        online = []
+    device_id = (cfg.device_id or "").strip()
+    ok_device = bool(device_id) or len(online) == 1
+    if device_id:
+        device_msg = f"已选择: {device_id}"
+    elif len(online) == 1:
+        device_msg = f"未选择（将自动使用: {online[0]}）"
+    elif len(online) > 1:
+        device_msg = "未选择（多设备在线，请在设备列表点“选用”）"
+    else:
+        device_msg = "未检测到在线设备"
     return {
         "adb": {"ok": ok_adb, "message": out_adb or ("正常" if ok_adb else "异常")},
         "autoglm_dir": {"ok": ok_dir, "path": autoglm_dir, "message": ("目录存在" if ok_dir else f"目录不存在: {autoglm_dir}")},
         "config": {"ok": ok_cfg, "message": cfg_msg},
+        "device": {"ok": ok_device, "selected": device_id, "online": online, "message": device_msg},
     }
 
 

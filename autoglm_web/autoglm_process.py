@@ -85,6 +85,24 @@ def start(cfg: AutoglmConfig) -> tuple[bool, str]:
         if not workdir.exists():
             return False, f"未找到 Open-AutoGLM 目录: {workdir}"
 
+        # 设备选择：避免多设备时 Open-AutoGLM 内部 adb 默认设备不明确而失败
+        resolved_device_id = str(cfg.device_id or "").strip()
+        if not resolved_device_id:
+            try:
+                from .adb import devices as adb_devices
+
+                ds = adb_devices(raise_on_error=False)
+                online = [d.serial for d in ds if d.status == "device"]
+                if len(online) == 1:
+                    resolved_device_id = online[0]
+                elif len(online) > 1:
+                    return False, "检测到多个在线设备，请先在 Web 配置中选择设备（设备列表点“选用”）"
+                else:
+                    return False, "未检测到在线设备：请先通过 ADB 配对/连接，并确认设备状态为 device"
+            except Exception:
+                # 不阻塞启动，但可能会在上游报更模糊的错误
+                resolved_device_id = ""
+
         _state_dir().mkdir(parents=True, exist_ok=True)
         lf = log_file()
         log_fp = lf.open("a", encoding="utf-8")
@@ -99,8 +117,8 @@ def start(cfg: AutoglmConfig) -> tuple[bool, str]:
             "--apikey",
             cfg.api_key,
         ]
-        if cfg.device_id:
-            args += ["--device-id", cfg.device_id]
+        if resolved_device_id:
+            args += ["--device-id", resolved_device_id]
         if str(cfg.max_steps).strip():
             args += ["--max-steps", str(cfg.max_steps)]
         if cfg.lang:
