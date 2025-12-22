@@ -44,8 +44,21 @@ def _format(value: Any, params: dict[str, Any]) -> Any:
     return value
 
 
-def run_step(step: dict[str, Any], params: dict[str, Any]) -> tuple[bool, str]:
+def _step_device_id(step: dict[str, Any], params: dict[str, Any], default_device_id: str | None) -> str | None:
+    raw = step.get("device_id", None)
+    if raw is None:
+        return default_device_id
+    try:
+        value = _format(raw, params) if isinstance(raw, str) else raw
+        device_id = str(value or "").strip()
+    except Exception:
+        device_id = ""
+    return device_id or default_device_id
+
+
+def run_step(step: dict[str, Any], params: dict[str, Any], *, default_device_id: str | None = None) -> tuple[bool, str]:
     stype = step.get("type", "")
+    device_id = _step_device_id(step, params, default_device_id)
     if stype == "note":
         msg = _format(step.get("text", ""), params)
         _log_line(f"[note] {msg}")
@@ -56,18 +69,18 @@ def run_step(step: dict[str, Any], params: dict[str, Any]) -> tuple[bool, str]:
         return True, f"sleep {ms}ms"
     if stype == "adb_shell":
         cmd = _format(step.get("command", ""), params)
-        ok, out = adb.shell(cmd)
+        ok, out = adb.shell(cmd, device_id=device_id)
         _log_line(f"[adb shell] {cmd} -> {out}")
         return ok, out
     if stype == "adb_input":
         text = _format(step.get("text", ""), params)
-        ok, out = adb.input_text(text)
+        ok, out = adb.input_text(text, device_id=device_id)
         _log_line(f"[adb input] {text} -> {out}")
         return ok, out
     if stype == "adb_tap":
         x = int(step.get("x", 0))
         y = int(step.get("y", 0))
-        ok, out = adb.tap(x, y)
+        ok, out = adb.tap(x, y, device_id=device_id)
         _log_line(f"[adb tap] ({x},{y}) -> {out}")
         return ok, out
     if stype == "adb_swipe":
@@ -76,19 +89,19 @@ def run_step(step: dict[str, Any], params: dict[str, Any]) -> tuple[bool, str]:
         x2 = int(step.get("x2", 0))
         y2 = int(step.get("y2", 0))
         duration_ms = int(step.get("duration_ms", 300))
-        ok, out = adb.swipe(x1, y1, x2, y2, duration_ms)
+        ok, out = adb.swipe(x1, y1, x2, y2, duration_ms, device_id=device_id)
         _log_line(f"[adb swipe] ({x1},{y1})->({x2},{y2}) {duration_ms}ms -> {out}")
         return ok, out
     if stype == "adb_keyevent":
         key = _format(step.get("key", ""), params)
-        ok, out = adb.keyevent(key)
+        ok, out = adb.keyevent(key, device_id=device_id)
         _log_line(f"[adb keyevent] {key} -> {out}")
         return ok, out
     if stype == "app_launch":
         package = _format(step.get("package", ""), params)
         activity = _format(step.get("activity", ""), params) or None
         action = step.get("action", "auto")
-        ok, out = adb.start_app(package, activity, action=action)
+        ok, out = adb.start_app(package, activity, action=action, device_id=device_id)
         _log_line(f"[app launch] {package} {activity or ''} -> {out}")
         return ok, out
     if stype == "autoglm_prompt":
@@ -112,6 +125,17 @@ def run_task_by_id(task_id: str, params: dict[str, Any] | None = None) -> list[d
     if not task:
         raise ValueError("未找到任务")
     results: list[dict[str, Any]] = []
+    cfg = read_config()
+    default_device_id = cfg.device_id or None
+    if not default_device_id:
+        try:
+            ds = adb.devices(raise_on_error=False)
+            for d in ds:
+                if d.status == "device":
+                    default_device_id = d.serial
+                    break
+        except Exception:
+            default_device_id = None
     prompt = task.get("prompt", "")
     if prompt:
         try:
@@ -129,7 +153,7 @@ def run_task_by_id(task_id: str, params: dict[str, Any] | None = None) -> list[d
             msg = f"应用库功能已移除，无法执行应用 {app_id or '未指定'}，请直接在任务步骤中编排 adb_* 或 autoglm_prompt"
             results.append({"type": "app", "app_id": app_id, "ok": False, "output": msg})
             break
-        ok, out = run_step(st, params)
+        ok, out = run_step(st, params, default_device_id=default_device_id)
         results.append({"type": st.get("type"), "ok": ok, "output": out})
         if not ok:
             break

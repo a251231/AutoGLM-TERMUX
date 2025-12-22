@@ -9,12 +9,16 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from . import __version__
 from .adb import (
     connect,
+    connect_wifi as adb_connect_wifi,
     devices,
     disconnect,
     list_packages,
     list_packages_with_labels,
     pair,
     restart_server,
+    screenshot_base64,
+    swipe as adb_swipe,
+    tap as adb_tap,
     version as adb_version,
 )
 from .autoglm_process import start as start_autoglm
@@ -67,6 +71,10 @@ def index() -> str:
     th, td {{ border-bottom: 1px solid rgba(128,128,128,.25); padding: 8px; text-align: left; font-size: 13px; }}
     .pill {{ display:inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(128,128,128,.35); font-size: 12px; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
+    .screenWrap {{ position: relative; display: inline-block; max-width: 520px; width: 100%; }}
+    .screenImg {{ display:block; width: 100%; height: auto; border: 1px solid rgba(128,128,128,.35); border-radius: 10px; }}
+    @keyframes ripple {{ 0% {{ transform: translate(-50%, -50%) scale(.2); opacity: 1; }} 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0; }} }}
+    .ripple-circle {{ position: absolute; width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(0, 120, 255, .8); background: rgba(0, 120, 255, .12); animation: ripple 520ms ease-out; pointer-events: none; }}
   </style>
 </head>
 <body>
@@ -135,6 +143,7 @@ def index() -> str:
           <button class="primary" onclick="adbConnect()">连接</button>
           <button onclick="adbDisconnectAll()">断开全部</button>
           <button onclick="adbRestart()">重启 ADB 服务</button>
+          <button onclick="adbConnectWifi()">USB→WiFi</button>
         </div>
 
         <div style="margin-top:12px;">
@@ -171,6 +180,19 @@ def index() -> str:
         </div>
 
       </div>
+    </div>
+
+    <div class="card" style="margin-top:12px;">
+      <div class="row" style="align-items:center;">
+        <h3 style="margin-top:0; flex:1;">屏幕预览</h3>
+        <button onclick="refreshScreenshot()">刷新</button>
+        <button onclick="toggleScreenAuto()" id="screenAutoBtn">自动刷新</button>
+      </div>
+      <div class="muted" id="screenMsg"></div>
+      <div class="screenWrap" id="screenWrap">
+        <img id="screenImg" class="screenImg" alt="screen" />
+      </div>
+      <div class="muted">提示：点击图片发送 tap（使用当前选中设备），用于快速确认执行进度。</div>
     </div>
 
     <div class="card" style="margin-top:12px;">
@@ -253,6 +275,10 @@ let logOffset = 0;
 let follow = true;
 let sessionId = "";
 let tasksCache = [];
+let screenAuto = false;
+let screenTimer = 0;
+let screenMeta = {{ width: 0, height: 0, device_id: "" }};
+let screenFailCount = 0;
 
 function authHeader() {{
   const t = localStorage.getItem(LS_TOKEN_KEY) || "";
@@ -428,6 +454,127 @@ async function adbRestart() {{
     await loadDevices();
   }} catch (e) {{
     setMsg("adbMsg", "重启失败: " + e.message);
+  }}
+}}
+
+async function adbConnectWifi() {{
+  try {{
+    const data = await apiJson("/api/adb/connect_wifi", {{ method: "POST", body: JSON.stringify({{ port: 5555 }}) }});
+    const addr = data.address ? (" | " + data.address) : "";
+    setMsg("adbMsg", (data.output || data.message || "完成") + addr);
+    await loadDevices();
+  }} catch (e) {{
+    setMsg("adbMsg", "USB→WiFi 失败: " + e.message);
+  }}
+}}
+
+function setScreenMsg(msg) {{
+  setMsg("screenMsg", msg);
+}}
+
+function stopScreenAuto() {{
+  screenAuto = false;
+  if (screenTimer) {{
+    clearTimeout(screenTimer);
+    screenTimer = 0;
+  }}
+  screenFailCount = 0;
+  const btn = document.getElementById("screenAutoBtn");
+  if (btn) btn.textContent = "自动刷新";
+}}
+
+function toggleScreenAuto() {{
+  screenAuto = !screenAuto;
+  const btn = document.getElementById("screenAutoBtn");
+  if (btn) btn.textContent = screenAuto ? "停止自动" : "自动刷新";
+  if (screenAuto) {{
+    scheduleScreenAuto(0);
+  }} else {{
+    stopScreenAuto();
+  }}
+}}
+
+function _screenBackoffMs() {{
+  const base = 1200;
+  const pow = Math.min(screenFailCount, 4);
+  return Math.min(15000, base * Math.pow(2, pow));
+}}
+
+function scheduleScreenAuto(delayMs) {{
+  if (!screenAuto) return;
+  if (screenTimer) {{
+    clearTimeout(screenTimer);
+    screenTimer = 0;
+  }}
+  const ms = Math.max(0, parseInt(delayMs || 0, 10));
+  screenTimer = setTimeout(async () => {{
+    if (!screenAuto) return;
+    if (!hasToken()) {{
+      stopScreenAuto();
+      return;
+    }}
+    if (document.visibilityState === "hidden") {{
+      scheduleScreenAuto(5000);
+      return;
+    }}
+    const ok = await refreshScreenshot();
+    scheduleScreenAuto(ok ? 1200 : _screenBackoffMs());
+  }}, ms);
+}}
+
+async function refreshScreenshot() {{
+  try {{
+    const data = await apiJson("/api/screen/screenshot");
+    const img = document.getElementById("screenImg");
+    if (!img) return;
+    img.src = "data:image/png;base64," + (data.image_base64 || "");
+    screenMeta = {{
+      width: data.width || img.naturalWidth || 0,
+      height: data.height || img.naturalHeight || 0,
+      device_id: data.device_id || "",
+    }};
+    const sizeText = (screenMeta.width && screenMeta.height) ? (screenMeta.width + "x" + screenMeta.height) : "unknown";
+    setScreenMsg("设备: " + (screenMeta.device_id || "(自动)") + " | 分辨率: " + sizeText);
+    screenFailCount = 0;
+    return true;
+  }} catch (e) {{
+    setScreenMsg("截图失败: " + e.message);
+    screenFailCount += 1;
+    return false;
+  }}
+}}
+
+function addRipple(x, y) {{
+  const wrap = document.getElementById("screenWrap");
+  if (!wrap) return;
+  const el = document.createElement("div");
+  el.className = "ripple-circle";
+  el.style.left = x + "px";
+  el.style.top = y + "px";
+  wrap.appendChild(el);
+  setTimeout(() => {{
+    try {{ wrap.removeChild(el); }} catch (e) {{ }}
+  }}, 600);
+}}
+
+async function onScreenClick(ev) {{
+  if (!hasToken()) return;
+  const img = document.getElementById("screenImg");
+  if (!img || !img.src) return;
+  const rect = img.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const relX = (ev.clientX - rect.left) / rect.width;
+  const relY = (ev.clientY - rect.top) / rect.height;
+  const w = screenMeta.width || img.naturalWidth || 0;
+  const h = screenMeta.height || img.naturalHeight || 0;
+  if (!w || !h) return;
+  const x = Math.max(0, Math.min(w - 1, Math.round(relX * w)));
+  const y = Math.max(0, Math.min(h - 1, Math.round(relY * h)));
+  addRipple(ev.clientX - rect.left, ev.clientY - rect.top);
+  try {{
+    await apiJson("/api/control/tap", {{ method: "POST", body: JSON.stringify({{ x, y }}) }});
+  }} catch (e) {{
+    setScreenMsg("tap 失败: " + e.message);
   }}
 }}
 
@@ -703,6 +850,8 @@ async function refreshAll() {{
     setMsg("adbMsg", "");
     setMsg("taskMsg", "");
     setMsg("runMsg", "");
+    setScreenMsg("");
+    stopScreenAuto();
     return;
   }}
   await loadChecks();
@@ -710,6 +859,7 @@ async function refreshAll() {{
   await loadDevices();
   await loadTasks();
   await autoglmStatus();
+  await refreshScreenshot();
 }}
 
 async function loadServerInfo() {{
@@ -723,6 +873,14 @@ async function loadServerInfo() {{
 }}
 
 document.getElementById("token").value = localStorage.getItem(LS_TOKEN_KEY) || "";
+const screenImgEl = document.getElementById("screenImg");
+if (screenImgEl) screenImgEl.addEventListener("click", onScreenClick);
+document.addEventListener("visibilitychange", () => {{
+  if (!screenAuto) return;
+  if (document.visibilityState === "visible") {{
+    scheduleScreenAuto(0);
+  }}
+}});
 loadServerInfo();
 refreshAll();
 pollLogs();
@@ -808,8 +966,23 @@ def adb_packages(limit: int | None = None, _: AuthResult = Depends(require_token
     if limit is None or limit <= 0:
         limit = 120
     limit = min(limit, max_limit)
+    cfg = read_config()
+    device_id = (cfg.device_id or "").strip() or None
+    if not device_id:
+        ds = devices(raise_on_error=False)
+        for d in ds:
+            if d.status == "device":
+                device_id = d.serial
+                break
+    if not device_id:
+        raise HTTPException(status_code=400, detail="未选择设备（请先在设备列表中点“选用”）")
     try:
-        pkgs = list_packages_with_labels(third_party=True, limit=limit, raise_on_error=True)
+        pkgs = list_packages_with_labels(
+            third_party=True,
+            limit=limit,
+            device_id=device_id,
+            raise_on_error=True,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"packages": pkgs}
@@ -941,6 +1114,101 @@ def adb_restart(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
     if not ok:
         raise HTTPException(status_code=500, detail=out or "restart failed")
     return {"ok": True, "output": out}
+
+
+@app.post("/api/adb/connect_wifi")
+def adb_connect_wifi_api(payload: dict[str, Any] | None = None, _: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    payload = payload or {}
+    port = int(payload.get("port", 5555) or 5555)
+    cfg = read_config()
+    device_id = str(payload.get("device_id", "") or "").strip() or (cfg.device_id or "")
+    if not device_id:
+        # 兜底：选择第一个在线设备
+        ds = devices(raise_on_error=False)
+        for d in ds:
+            if d.status == "device":
+                device_id = d.serial
+                break
+    if not device_id:
+        raise HTTPException(status_code=400, detail="未指定 device_id，且未检测到在线设备")
+
+    ok, out, address = adb_connect_wifi(device_id=device_id, port=port)
+    if not ok:
+        raise HTTPException(status_code=500, detail=out or "connect_wifi failed")
+    return {"ok": True, "output": out, "address": address, "device_id": device_id}
+
+
+@app.get("/api/screen/screenshot")
+def api_screenshot(device_id: str | None = None, _: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    cfg = read_config()
+    resolved = (device_id or "").strip() or (cfg.device_id or "").strip() or None
+    if not resolved:
+        ds = devices(raise_on_error=False)
+        for d in ds:
+            if d.status == "device":
+                resolved = d.serial
+                break
+    if not resolved:
+        raise HTTPException(status_code=400, detail="未选择设备（请先在设备列表中点“选用”）")
+    ok, b64, meta, msg = screenshot_base64(device_id=resolved, timeout_s=10, retries=1)
+    if not ok:
+        raise HTTPException(status_code=500, detail=msg or "screenshot failed")
+    return {
+        "ok": True,
+        "device_id": resolved or "",
+        "image_base64": b64,
+        "width": meta.get("width"),
+        "height": meta.get("height"),
+    }
+
+
+@app.post("/api/control/tap")
+def api_control_tap(payload: dict[str, Any], _: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    cfg = read_config()
+    try:
+        x = int(payload.get("x", 0))
+        y = int(payload.get("y", 0))
+    except Exception:
+        raise HTTPException(status_code=400, detail="x/y 必须为整数")
+    device_id = str(payload.get("device_id", "") or "").strip() or (cfg.device_id or "").strip() or None
+    if not device_id:
+        ds = devices(raise_on_error=False)
+        for d in ds:
+            if d.status == "device":
+                device_id = d.serial
+                break
+    if not device_id:
+        raise HTTPException(status_code=400, detail="未选择设备（请先在设备列表中点“选用”）")
+    ok, out = adb_tap(x, y, device_id=device_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail=out or "tap failed")
+    return {"ok": True, "output": out or ""}
+
+
+@app.post("/api/control/swipe")
+def api_control_swipe(payload: dict[str, Any], _: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    cfg = read_config()
+    try:
+        x1 = int(payload.get("x1", 0))
+        y1 = int(payload.get("y1", 0))
+        x2 = int(payload.get("x2", 0))
+        y2 = int(payload.get("y2", 0))
+        duration_ms = int(payload.get("duration_ms", 300))
+    except Exception:
+        raise HTTPException(status_code=400, detail="x1/y1/x2/y2/duration_ms 必须为整数")
+    device_id = str(payload.get("device_id", "") or "").strip() or (cfg.device_id or "").strip() or None
+    if not device_id:
+        ds = devices(raise_on_error=False)
+        for d in ds:
+            if d.status == "device":
+                device_id = d.serial
+                break
+    if not device_id:
+        raise HTTPException(status_code=400, detail="未选择设备（请先在设备列表中点“选用”）")
+    ok, out = adb_swipe(x1, y1, x2, y2, duration_ms, device_id=device_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail=out or "swipe failed")
+    return {"ok": True, "output": out or ""}
 
 
 @app.get("/api/autoglm/status")

@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import subprocess
+from base64 import b64encode
 from dataclasses import dataclass
 from time import sleep
 
@@ -28,10 +29,17 @@ def _adb_not_found_message() -> str:
     return "未找到 adb 命令：请先安装 ADB 并确保 adb 在 PATH 中"
 
 
-def _run_adb(args: list[str], timeout_s: int = 20) -> tuple[int, str]:
+def _adb_base_args(device_id: str | None = None) -> list[str]:
+    base = ["adb"]
+    if device_id:
+        base += ["-s", device_id]
+    return base
+
+
+def _run_adb(args: list[str], timeout_s: int = 20, *, device_id: str | None = None) -> tuple[int, str]:
     try:
         proc = subprocess.run(
-            ["adb", *args],
+            _adb_base_args(device_id) + args,
             capture_output=True,
             text=True,
             timeout=timeout_s,
@@ -41,7 +49,7 @@ def _run_adb(args: list[str], timeout_s: int = 20) -> tuple[int, str]:
     except FileNotFoundError:
         return 127, _adb_not_found_message()
     except subprocess.TimeoutExpired:
-        return 124, f"adb 执行超时（>{timeout_s}s）：{' '.join(['adb', *args])}"
+        return 124, f"adb 执行超时（>{timeout_s}s）：{' '.join(_adb_base_args(device_id) + args)}"
     except Exception as e:
         return 1, f"adb 执行失败: {e}"
 
@@ -108,11 +116,13 @@ def version() -> tuple[bool, str]:
     return rc == 0, out
 
 
-def list_packages(third_party: bool = True, *, raise_on_error: bool = False) -> list[str]:
+def list_packages(
+    third_party: bool = True, *, device_id: str | None = None, raise_on_error: bool = False
+) -> list[str]:
     args = ["shell", "pm", "list", "packages"]
     if third_party:
         args.append("-3")
-    code, out = _run_adb(args, timeout_s=30)
+    code, out = _run_adb(args, timeout_s=30, device_id=device_id)
     if code != 0:
         if raise_on_error:
             raise RuntimeError(out or "adb shell pm list packages 执行失败")
@@ -128,10 +138,10 @@ def list_packages(third_party: bool = True, *, raise_on_error: bool = False) -> 
     return pkgs
 
 
-def _package_label(pkg: str) -> str | None:
+def _package_label(pkg: str, *, device_id: str | None = None) -> str | None:
     # 尝试从 dumpsys 中获取 application-label
     cmd = ["shell", "dumpsys", "package", pkg]
-    code, out = _run_adb(cmd, timeout_s=8)
+    code, out = _run_adb(cmd, timeout_s=8, device_id=device_id)
     if code != 0 or not out:
         return None
     for ln in out.splitlines():
@@ -144,48 +154,62 @@ def _package_label(pkg: str) -> str | None:
 
 
 def list_packages_with_labels(
-    third_party: bool = True, limit: int | None = None, *, raise_on_error: bool = False
+    third_party: bool = True,
+    limit: int | None = None,
+    *,
+    device_id: str | None = None,
+    raise_on_error: bool = False,
 ) -> list[dict[str, str]]:
-    pkgs = list_packages(third_party=third_party, raise_on_error=raise_on_error)
+    pkgs = list_packages(third_party=third_party, device_id=device_id, raise_on_error=raise_on_error)
     if limit is not None:
         pkgs = pkgs[:limit]
     result: list[dict[str, str]] = []
     for pkg in pkgs:
-        label = _package_label(pkg) or ""
+        label = _package_label(pkg, device_id=device_id) or ""
         result.append({"package": pkg, "label": label})
     return result
 
 
-def shell(cmd: str, timeout_s: int = 20) -> tuple[bool, str]:
-    rc, out = _run_adb(["shell", cmd], timeout_s=timeout_s)
+def shell(cmd: str, timeout_s: int = 20, *, device_id: str | None = None) -> tuple[bool, str]:
+    rc, out = _run_adb(["shell", cmd], timeout_s=timeout_s, device_id=device_id)
     return rc == 0, out
 
 
-def input_text(text: str) -> tuple[bool, str]:
+def input_text(text: str, *, device_id: str | None = None) -> tuple[bool, str]:
     # 使用 shell 转义规避命令注入，同时去掉换行符避免意外分行
     sanitized = text.replace("\r", " ").replace("\n", " ")
     safe = shlex.quote(sanitized)
-    return shell(f"input text {safe}")
+    return shell(f"input text {safe}", device_id=device_id)
 
 
-def tap(x: int, y: int) -> tuple[bool, str]:
-    return shell(f"input tap {x} {y}")
+def tap(x: int, y: int, *, device_id: str | None = None) -> tuple[bool, str]:
+    return shell(f"input tap {x} {y}", device_id=device_id)
 
 
-def swipe(x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300) -> tuple[bool, str]:
-    return shell(f"input swipe {x1} {y1} {x2} {y2} {duration_ms}")
+def swipe(
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    duration_ms: int = 300,
+    *,
+    device_id: str | None = None,
+) -> tuple[bool, str]:
+    return shell(f"input swipe {x1} {y1} {x2} {y2} {duration_ms}", device_id=device_id)
 
 
-def keyevent(key: str) -> tuple[bool, str]:
+def keyevent(key: str, *, device_id: str | None = None) -> tuple[bool, str]:
     key = str(key or "").strip()
     if not key:
         return False, "invalid keyevent"
     if not (re.fullmatch(r"\d+", key) or re.fullmatch(r"KEYCODE_[A-Z0-9_]+", key)):
         return False, "invalid keyevent"
-    return shell(f"input keyevent {key}")
+    return shell(f"input keyevent {key}", device_id=device_id)
 
 
-def start_app(package: str, activity: str | None = None, action: str = "auto") -> tuple[bool, str]:
+def start_app(
+    package: str, activity: str | None = None, action: str = "auto", *, device_id: str | None = None
+) -> tuple[bool, str]:
     # 严格限制包名/Activity 以防命令注入
     def _validate(name: str, field: str) -> None:
         if not name or not all(ch.isalnum() or ch in "._$" for ch in name):
@@ -199,12 +223,163 @@ def start_app(package: str, activity: str | None = None, action: str = "auto") -
             _validate(p, "activity")
 
     if action == "monkey" or (action == "auto" and not activity):
-        return shell(f"monkey -p {package} -c android.intent.category.LAUNCHER 1")
+        return shell(f"monkey -p {package} -c android.intent.category.LAUNCHER 1", device_id=device_id)
     if activity:
-        return shell(f"am start -n {package}/{activity}")
-    return shell(f"monkey -p {package} -c android.intent.category.LAUNCHER 1")
+        return shell(f"am start -n {package}/{activity}", device_id=device_id)
+    return shell(f"monkey -p {package} -c android.intent.category.LAUNCHER 1", device_id=device_id)
 
 
 def pause_ms(ms: int) -> None:
     sleep(max(ms, 0) / 1000)
+
+
+def tcpip(port: int = 5555, *, device_id: str | None = None) -> tuple[bool, str]:
+    port = int(port or 5555)
+    rc, out = _run_adb(["tcpip", str(port)], timeout_s=10, device_id=device_id)
+    return rc == 0, out
+
+
+def get_wifi_ip(*, device_id: str | None = None) -> str | None:
+    """
+    尽量获取设备 WiFi IP，优先 route src，并跳过常见的移动网络接口。
+    参考 AutoGLM-GUI 的 adb_plus/ip.py，但不引入额外依赖。
+    """
+
+    def _extract_ipv4(text: str) -> str | None:
+        m = re.search(r"\\b(?:[0-9]{1,3}\\.){3}[0-9]{1,3}\\b", text or "")
+        if not m:
+            return None
+        ip = m.group(0)
+        if ip == "0.0.0.0":
+            return None
+        return ip
+
+    try:
+        ok, out = shell("ip -4 route get 8.8.8.8", timeout_s=6, device_id=device_id)
+        if ok and out:
+            for line in out.splitlines():
+                if " src " not in line:
+                    continue
+                parts = line.split()
+                iface = None
+                ip = None
+                if "dev" in parts:
+                    try:
+                        iface = parts[parts.index("dev") + 1]
+                    except Exception:
+                        pass
+                if "src" in parts:
+                    try:
+                        ip = parts[parts.index("src") + 1]
+                    except Exception:
+                        pass
+                if not ip or ip == "0.0.0.0":
+                    continue
+                if iface and (iface.startswith("ccmni") or iface.startswith("rmnet")):
+                    continue
+                return ip
+    except Exception:
+        pass
+
+    try:
+        ok, out = shell("ip -4 addr show wlan0", timeout_s=6, device_id=device_id)
+        if ok and out:
+            return _extract_ipv4(out)
+    except Exception:
+        pass
+
+    return None
+
+
+def connect_wifi(*, device_id: str | None = None, port: int = 5555) -> tuple[bool, str, str | None]:
+    """
+    USB -> WiFi：读取设备 WiFi IP，启用 tcpip，然后 adb connect。
+    返回 (ok, output, address)。
+    """
+    ip = get_wifi_ip(device_id=device_id)
+    if not ip:
+        return False, "无法获取设备 WiFi IP", None
+    ok, out = tcpip(port, device_id=device_id)
+    if not ok:
+        return False, out or "adb tcpip 失败", None
+    addr = f"{ip}:{int(port or 5555)}"
+    ok2, out2 = connect(addr)
+    msg = "\n".join([s for s in [out, out2] if s]).strip()
+    return ok2, msg, addr
+
+
+def _run_adb_bytes(args: list[str], timeout_s: int = 10, *, device_id: str | None = None) -> tuple[int, bytes, str]:
+    try:
+        proc = subprocess.run(
+            _adb_base_args(device_id) + args,
+            capture_output=True,
+            timeout=timeout_s,
+        )
+        stdout = proc.stdout if isinstance(proc.stdout, (bytes, bytearray)) else b""
+        stderr = (
+            proc.stderr.decode("utf-8", errors="replace")
+            if isinstance(proc.stderr, (bytes, bytearray))
+            else str(proc.stderr or "")
+        )
+        return proc.returncode, bytes(stdout), (stderr or "").strip()
+    except FileNotFoundError:
+        return 127, b"", _adb_not_found_message()
+    except subprocess.TimeoutExpired:
+        return 124, b"", f"adb 执行超时（>{timeout_s}s）：{' '.join(_adb_base_args(device_id) + args)}"
+    except Exception as e:
+        return 1, b"", f"adb 执行失败: {e}"
+
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def screenshot_png(*, device_id: str | None = None, timeout_s: int = 10, retries: int = 1) -> tuple[bool, bytes, str]:
+    """
+    使用 `adb exec-out screencap -p` 截图，返回 (ok, png_bytes, message)。
+    参考 AutoGLM-GUI 的 adb_plus/screenshot.py，但不引入 PIL。
+    """
+    attempts = max(1, int(retries) + 1)
+    last_err = ""
+    for _ in range(attempts):
+        rc, data, err = _run_adb_bytes(
+            ["exec-out", "screencap", "-p"], timeout_s=timeout_s, device_id=device_id
+        )
+        if rc != 0 or not data:
+            last_err = err or f"exec-out failed rc={rc}"
+            continue
+        if len(data) <= len(PNG_SIGNATURE) + 8 or not data.startswith(PNG_SIGNATURE):
+            last_err = "截图格式异常（PNG signature 不匹配）"
+            continue
+        return True, data, "ok"
+    return False, b"", last_err or "截图失败"
+
+
+def png_dimensions(png: bytes) -> tuple[int | None, int | None]:
+    """从 PNG IHDR 解析宽高，无需 Pillow。"""
+    try:
+        if not png.startswith(PNG_SIGNATURE):
+            return None, None
+        # signature(8) + length(4) + type(4) => IHDR data starts at 16
+        if len(png) < 24:
+            return None, None
+        if png[12:16] != b"IHDR":
+            return None, None
+        w = int.from_bytes(png[16:20], "big", signed=False)
+        h = int.from_bytes(png[20:24], "big", signed=False)
+        if w <= 0 or h <= 0:
+            return None, None
+        return w, h
+    except Exception:
+        return None, None
+
+
+def screenshot_base64(
+    *, device_id: str | None = None, timeout_s: int = 10, retries: int = 1
+) -> tuple[bool, str, dict[str, int | None], str]:
+    ok, png, msg = screenshot_png(device_id=device_id, timeout_s=timeout_s, retries=retries)
+    if not ok:
+        return False, "", {"width": None, "height": None}, msg
+    w, h = png_dimensions(png)
+    b64 = b64encode(png).decode("ascii")
+    return True, b64, {"width": w, "height": h}, "ok"
 

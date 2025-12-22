@@ -1,0 +1,3 @@
+# AutoGLM-TERMUX Web (autoglm_web) 依赖
+fastapi>=0.124.0
+uvicorn>=0.30.0
