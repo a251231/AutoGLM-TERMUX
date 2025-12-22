@@ -175,6 +175,14 @@ def shell(cmd: str, timeout_s: int = 20, *, device_id: str | None = None) -> tup
     return rc == 0, out
 
 
+def shell_argv(argv: list[str], timeout_s: int = 20, *, device_id: str | None = None) -> tuple[bool, str]:
+    """
+    以参数数组方式执行 `adb shell ...`，避免把带空格的整条命令作为单一参数传入时的兼容性问题。
+    """
+    rc, out = _run_adb(["shell", *argv], timeout_s=timeout_s, device_id=device_id)
+    return rc == 0, out
+
+
 def input_text(text: str, *, device_id: str | None = None) -> tuple[bool, str]:
     # 使用 shell 转义规避命令注入，同时去掉换行符避免意外分行
     sanitized = text.replace("\r", " ").replace("\n", " ")
@@ -183,7 +191,7 @@ def input_text(text: str, *, device_id: str | None = None) -> tuple[bool, str]:
 
 
 def tap(x: int, y: int, *, device_id: str | None = None) -> tuple[bool, str]:
-    return shell(f"input tap {x} {y}", device_id=device_id)
+    return shell_argv(["input", "tap", str(int(x)), str(int(y))], device_id=device_id)
 
 
 def swipe(
@@ -195,7 +203,10 @@ def swipe(
     *,
     device_id: str | None = None,
 ) -> tuple[bool, str]:
-    return shell(f"input swipe {x1} {y1} {x2} {y2} {duration_ms}", device_id=device_id)
+    return shell_argv(
+        ["input", "swipe", str(int(x1)), str(int(y1)), str(int(x2)), str(int(y2)), str(int(duration_ms))],
+        device_id=device_id,
+    )
 
 
 def keyevent(key: str, *, device_id: str | None = None) -> tuple[bool, str]:
@@ -204,7 +215,7 @@ def keyevent(key: str, *, device_id: str | None = None) -> tuple[bool, str]:
         return False, "invalid keyevent"
     if not (re.fullmatch(r"\d+", key) or re.fullmatch(r"KEYCODE_[A-Z0-9_]+", key)):
         return False, "invalid keyevent"
-    return shell(f"input keyevent {key}", device_id=device_id)
+    return shell_argv(["input", "keyevent", key], device_id=device_id)
 
 
 def start_app(
@@ -223,10 +234,16 @@ def start_app(
             _validate(p, "activity")
 
     if action == "monkey" or (action == "auto" and not activity):
-        return shell(f"monkey -p {package} -c android.intent.category.LAUNCHER 1", device_id=device_id)
+        return shell_argv(
+            ["monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"],
+            device_id=device_id,
+        )
     if activity:
-        return shell(f"am start -n {package}/{activity}", device_id=device_id)
-    return shell(f"monkey -p {package} -c android.intent.category.LAUNCHER 1", device_id=device_id)
+        return shell_argv(["am", "start", "-n", f"{package}/{activity}"], device_id=device_id)
+    return shell_argv(
+        ["monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"],
+        device_id=device_id,
+    )
 
 
 def pause_ms(ms: int) -> None:

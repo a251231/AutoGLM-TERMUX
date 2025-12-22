@@ -72,7 +72,7 @@ def index() -> str:
     .pill {{ display:inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(128,128,128,.35); font-size: 12px; }}
     code {{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }}
     .screenWrap {{ position: relative; display: inline-block; max-width: 520px; width: 100%; }}
-    .screenImg {{ display:block; width: 100%; height: auto; border: 1px solid rgba(128,128,128,.35); border-radius: 10px; }}
+    .screenImg {{ display:block; width: 100%; height: auto; border: 1px solid rgba(128,128,128,.35); border-radius: 10px; cursor: pointer; }}
     @keyframes ripple {{ 0% {{ transform: translate(-50%, -50%) scale(.2); opacity: 1; }} 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0; }} }}
     .ripple-circle {{ position: absolute; width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(0, 120, 255, .8); background: rgba(0, 120, 255, .12); animation: ripple 520ms ease-out; pointer-events: none; }}
   </style>
@@ -109,6 +109,7 @@ def index() -> str:
         <input id="model" />
         <label>API Key</label>
         <input id="api_key" placeholder="为空则保持不变" />
+        <div class="muted" id="apiKeyHint"></div>
         <label>Max Steps</label>
         <input id="max_steps" />
         <label>语言 (cn/en)</label>
@@ -279,6 +280,7 @@ let screenAuto = false;
 let screenTimer = 0;
 let screenMeta = {{ width: 0, height: 0, device_id: "" }};
 let screenFailCount = 0;
+let screenTapInflight = false;
 
 function authHeader() {{
   const t = localStorage.getItem(LS_TOKEN_KEY) || "";
@@ -326,6 +328,11 @@ async function loadConfig() {{
     document.getElementById("base_url").value = data.base_url || "";
     document.getElementById("model").value = data.model || "";
     document.getElementById("api_key").value = "";
+    const hint = document.getElementById("apiKeyHint");
+    if (hint) {{
+      const configured = (data.api_key_configured !== undefined) ? !!data.api_key_configured : !!(data.api_key && data.api_key !== "***");
+      hint.textContent = configured ? ("当前 Key: " + (data.api_key || "***")) : "当前 Key: 未配置";
+    }}
     document.getElementById("max_steps").value = data.max_steps || "";
     document.getElementById("device_id").value = data.device_id || "";
     document.getElementById("lang").value = data.lang || "";
@@ -559,6 +566,7 @@ function addRipple(x, y) {{
 
 async function onScreenClick(ev) {{
   if (!hasToken()) return;
+  if (screenTapInflight) return;
   const img = document.getElementById("screenImg");
   if (!img || !img.src) return;
   const rect = img.getBoundingClientRect();
@@ -572,9 +580,19 @@ async function onScreenClick(ev) {{
   const y = Math.max(0, Math.min(h - 1, Math.round(relY * h)));
   addRipple(ev.clientX - rect.left, ev.clientY - rect.top);
   try {{
-    await apiJson("/api/control/tap", {{ method: "POST", body: JSON.stringify({{ x, y }}) }});
+    screenTapInflight = true;
+    const payload = {{ x, y, device_id: (screenMeta.device_id || "") }};
+    const resp = await apiJson("/api/control/tap", {{ method: "POST", body: JSON.stringify(payload) }});
+    const extra = (resp && resp.output) ? (" | " + resp.output) : "";
+    setScreenMsg("已发送 tap: (" + x + "," + y + ")" + extra);
+    // 截图是静态的；发送 tap 后小延迟刷新一帧，避免用户误以为没生效
+    setTimeout(() => {{
+      if (hasToken()) refreshScreenshot();
+    }}, 350);
   }} catch (e) {{
     setScreenMsg("tap 失败: " + e.message);
+  }} finally {{
+    screenTapInflight = false;
   }}
 }}
 
@@ -848,6 +866,7 @@ async function refreshAll() {{
   if (!hasToken()) {{
     setMsg("checkMsg", "请先粘贴并保存 Token");
     setMsg("configMsg", "");
+    setMsg("apiKeyHint", "");
     setMsg("adbMsg", "");
     setMsg("taskMsg", "");
     setMsg("runMsg", "");
@@ -931,7 +950,9 @@ def checks(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
 @app.get("/api/config")
 def get_config(_: AuthResult = Depends(require_token)) -> JSONResponse:
     cfg = read_config()
-    return JSONResponse(cfg.as_public_dict(mask_api_key=True))
+    data = cfg.as_public_dict(mask_api_key=True)
+    data["api_key_configured"] = bool(cfg.api_key and cfg.api_key != "sk-your-apikey")
+    return JSONResponse(data)
 
 
 @app.post("/api/config")
