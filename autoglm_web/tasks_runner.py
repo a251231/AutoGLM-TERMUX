@@ -240,7 +240,7 @@ def get_interactive_log(sid: str) -> list[str]:
 
 def run_prompt_once(prompt: str, timeout_s: int = 600) -> str:
     cfg = read_config()
-    if not cfg.api_key or cfg.api_key == "sk-your-apikey":
+    if not cfg.api_key or str(cfg.api_key).strip() in {"sk-your-apikey", "EMPTY"}:
         raise RuntimeError(f"API Key 未配置：请在 {config_sh_path()} 填写有效密钥或通过 Web 界面保存配置")
 
     resolved_device_id = str(cfg.device_id or "").strip()

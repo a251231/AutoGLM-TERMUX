@@ -36,6 +36,15 @@ from .tasks_runner import get_interactive_log, new_session, run_prompt_once, run
 app = FastAPI(title="AutoGLM Web", version=__version__)
 
 
+def _api_key_configured(cfg: AutoglmConfig) -> bool:
+    key = str(cfg.api_key or "").strip()
+    if not key:
+        return False
+    if key in {"sk-your-apikey", "EMPTY"}:
+        return False
+    return True
+
+
 def _server_info() -> dict[str, Any]:
     host = os.environ.get("AUTOGLM_WEB_HOST", "0.0.0.0")
     port = int(os.environ.get("AUTOGLM_WEB_PORT", "8000"))
@@ -244,6 +253,7 @@ def index() -> str:
             <label>API Key</label>
             <input id="api_key" placeholder="为空则保持不变" />
             <div class="muted" id="apiKeyHint"></div>
+            <div class="muted" id="configPathHint"></div>
             <div class="grid2">
               <div>
                 <label>Max Steps</label>
@@ -531,6 +541,12 @@ async function loadConfig() {{
     if (hint) {{
       const configured = (data.api_key_configured !== undefined) ? !!data.api_key_configured : !!(data.api_key && data.api_key !== "***");
       hint.textContent = configured ? ("当前 Key: " + (data.api_key || "***")) : "当前 Key: 未配置";
+    }}
+    const pathHint = document.getElementById("configPathHint");
+    if (pathHint) {{
+      const p = data.config_path || "";
+      const exists = (data.config_exists !== undefined) ? (!!data.config_exists) : true;
+      pathHint.textContent = p ? ("配置文件: " + p + (exists ? "" : "（不存在）")) : "";
     }}
     document.getElementById("max_steps").value = data.max_steps || "";
     document.getElementById("device_id").value = data.device_id || "";
@@ -1138,6 +1154,7 @@ async function refreshAll() {{
     setMsg("checkMsg", "请先粘贴并保存 Token");
     setMsg("configMsg", "");
     setMsg("apiKeyHint", "");
+    setMsg("configPathHint", "");
     setMsg("adbMsg", "");
     setMsg("taskMsg", "");
     setMsg("runMsg", "");
@@ -1192,7 +1209,7 @@ def checks(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
     autoglm_dir = st.autoglm_dir
     ok_dir = bool(autoglm_dir) and os.path.isdir(autoglm_dir)
     cfg = read_config()
-    ok_cfg = bool(cfg.api_key and cfg.api_key != "sk-your-apikey")
+    ok_cfg = _api_key_configured(cfg)
     cfg_msg = "已配置" if ok_cfg else "API Key 未配置（请在 Web 配置中填写并保存）"
 
     # 设备自检：未选设备且多设备在线时，任务/交互模式可能失败
@@ -1223,7 +1240,9 @@ def checks(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
 def get_config(_: AuthResult = Depends(require_token)) -> JSONResponse:
     cfg = read_config()
     data = cfg.as_public_dict(mask_api_key=True)
-    data["api_key_configured"] = bool(cfg.api_key and cfg.api_key != "sk-your-apikey")
+    data["api_key_configured"] = _api_key_configured(cfg)
+    data["config_path"] = str(config_sh_path())
+    data["config_exists"] = config_exists()
     return JSONResponse(data)
 
 
