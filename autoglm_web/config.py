@@ -153,7 +153,8 @@ class AutoglmConfig:
         }
 
 
-_EXPORT_RE = re.compile(r"^\\s*export\\s+([A-Z0-9_]+)\\s*=\\s*(.*)\\s*$")
+# 解析 `export KEY=VALUE` 行（允许前后空白）
+_EXPORT_RE = re.compile(r"^\s*export\s+([A-Z0-9_]+)\s*=\s*(.*)\s*$")
 
 
 def read_config() -> AutoglmConfig:
