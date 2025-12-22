@@ -12,9 +12,7 @@ from .adb import (
     connect_wifi as adb_connect_wifi,
     devices,
     disconnect,
-    list_packages_with_labels,
     list_packages,
-    package_icon_base64,
     pair,
     restart_server,
     screenshot_base64,
@@ -191,7 +189,6 @@ def index() -> str:
     .cardHead {{ display:flex; align-items:center; gap: 10px; flex-wrap: wrap; }}
     .cardHead h3 {{ margin: 0; font-size: 15px; }}
     .cardHead .grow {{ flex: 1; min-width: 180px; }}
-    .pkgIcon {{ width: 28px; height: 28px; border-radius: 8px; border: 1px solid var(--border); object-fit: cover; display: block; }}
     .screenWrap {{ position: relative; display: inline-block; max-width: 720px; width: 100%; }}
     .screenImg {{ display:block; width: 100%; height: auto; border: 1px solid var(--border); border-radius: 14px; cursor: pointer; }}
     @keyframes ripple {{ 0% {{ transform: translate(-50%, -50%) scale(.2); opacity: 1; }} 100% {{ transform: translate(-50%, -50%) scale(1); opacity: 0; }} }}
@@ -326,13 +323,13 @@ def index() -> str:
             <div class="card">
               <div class="cardHead">
                 <h3 class="grow">已安装应用（第三方）</h3>
-                <button onclick="fetchPackages()">获取包名+图标</button>
-                <button onclick="loadMoreIcons()">加载更多图标</button>
+                <button onclick="fetchPackages()">获取包名</button>
               </div>
               <div class="grid2">
                 <div>
-                  <label>已选包名</label>
-                  <input id="pkg_selected" placeholder="点击下方列表的“选择”" readonly />
+                  <label>包名</label>
+                  <select id="pkg_select" size="10" style="height:240px;"></select>
+                  <div class="muted">提示：列表较长时可直接输入首字母快速定位；选择后点击“添加到 apps.py”。</div>
                 </div>
                 <div>
                   <label>应用名称（可选，默认使用包名）</label>
@@ -343,11 +340,6 @@ def index() -> str:
                 <button class="primary" onclick="addToAppsConfig()">添加到 apps.py</button>
               </div>
               <div class="muted" id="pkgMsg"></div>
-              <table style="margin-top:10px;">
-                <thead><tr><th style="width:48px;">图标</th><th>Package</th><th style="width:90px;">操作</th></tr></thead>
-                <tbody id="packagesBody"></tbody>
-              </table>
-              <div class="muted">说明：图标通过 ADB 从设备 APK 中提取，部分应用可能没有可导出的 PNG 图标（会显示占位）。</div>
             </div>
           </div>
         </div>
@@ -471,8 +463,6 @@ let screenMeta = {{ width: 0, height: 0, device_id: "" }};
 let screenFailCount = 0;
 let screenTapInflight = false;
 let packagesCache = [];
-let iconCursor = 0;
-const pkgIconCache = new Map();
 
 function authHeader() {{
   const t = localStorage.getItem(LS_TOKEN_KEY) || "";
@@ -968,15 +958,14 @@ async function fetchPackages() {{
     const data = await apiJson("/api/adb/packages");
     const pkgs = data.packages || [];
     renderPackages(pkgs);
-    setMsg("pkgMsg", "已获取 " + pkgs.length + " 个包名（默认加载一小批图标，可点“加载更多图标”）");
-    await loadMoreIcons();
+    setMsg("pkgMsg", "已获取 " + pkgs.length + " 个包名");
   }} catch (e) {{
     setMsg("pkgMsg", "获取失败: " + e.message);
   }}
 }}
 
 async function addToAppsConfig() {{
-  const pkg = (document.getElementById("pkg_selected").value || "").trim();
+  const pkg = (document.getElementById("pkg_select").value || "").trim();
   if (!pkg) {{
     setMsg("pkgMsg", "请先获取并选择包名");
     return;
@@ -991,82 +980,18 @@ async function addToAppsConfig() {{
   }}
 }}
 
-function _pkgPlaceholderSvg(text) {{
-  const t = (text || "?").slice(0, 2);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="56" height="56">\n<defs>\n<linearGradient id="g" x1="0" y1="0" x2="1" y2="1">\n<stop offset="0" stop-color="#60a5fa"/>\n<stop offset="1" stop-color="#a78bfa"/>\n</linearGradient>\n</defs>\n<rect width="56" height="56" rx="14" fill="url(#g)"/>\n<text x="50%" y="52%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui,Segoe UI,Roboto" font-size="18" fill="rgba(255,255,255,0.95)">${{t}}</text>\n</svg>`;
-  return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-}}
-
 function renderPackages(list) {{
-  packagesCache = list || [];
-  iconCursor = 0;
-  const body = document.getElementById("packagesBody");
-  body.textContent = "";
-  document.getElementById("pkg_selected").value = "";
-  for (const it of packagesCache) {{
-    const pkg = it.package || "";
-    const tr = document.createElement("tr");
-
-    const tdIcon = document.createElement("td");
-    const img = document.createElement("img");
-    img.className = "pkgIcon";
-    img.src = _pkgPlaceholderSvg(pkg.split(".").pop() || "app");
-    img.dataset.pkg = pkg;
-    tdIcon.appendChild(img);
-    tr.appendChild(tdIcon);
-
-    const tdPkg = document.createElement("td");
-    tdPkg.textContent = pkg;
-    tr.appendChild(tdPkg);
-
-    const tdOps = document.createElement("td");
-    const btn = document.createElement("button");
-    btn.textContent = "选择";
-    btn.onclick = () => selectPackage(pkg);
-    tdOps.appendChild(btn);
-    tr.appendChild(tdOps);
-
-    body.appendChild(tr);
-  }}
-}}
-
-function selectPackage(pkg) {{
-  document.getElementById("pkg_selected").value = pkg || "";
-  setMsg("pkgMsg", "已选择: " + (pkg || ""));
-  loadIconFor(pkg);
-}}
-
-async function loadIconFor(pkg) {{
-  if (!pkg) return;
-  if (pkgIconCache.has(pkg)) {{
-    const b64 = pkgIconCache.get(pkg) || "";
-    const img = document.querySelector(`img[data-pkg='${{pkg}}']`);
-    if (img && b64) img.src = "data:image/png;base64," + b64;
-    return;
-  }}
-  try {{
-    const data = await apiJson("/api/adb/package/icon?package=" + encodeURIComponent(pkg));
-    const b64 = data.image_base64 || "";
-    if (b64) {{
-      pkgIconCache.set(pkg, b64);
-      const img = document.querySelector(`img[data-pkg='${{pkg}}']`);
-      if (img) img.src = "data:image/png;base64," + b64;
-    }}
-  }} catch (e) {{
-    // 404/不支持则保持占位
-  }}
-}}
-
-async function loadMoreIcons() {{
-  const batch = 20;
-  const end = Math.min(packagesCache.length, iconCursor + batch);
-  const slice = packagesCache.slice(iconCursor, end);
-  iconCursor = end;
-  for (const it of slice) {{
-    await loadIconFor(it.package || "");
-  }}
-  if (packagesCache.length) {{
-    setMsg("pkgMsg", `图标加载进度: ${{iconCursor}}/${{packagesCache.length}}`);
+  packagesCache = Array.isArray(list) ? list : [];
+  const sel = document.getElementById("pkg_select");
+  if (!sel) return;
+  sel.textContent = "";
+  for (const pkg of packagesCache) {{
+    const p = (pkg || "").toString();
+    if (!p) continue;
+    const opt = document.createElement("option");
+    opt.value = p;
+    opt.textContent = p;
+    sel.appendChild(opt);
   }}
 }}
 
@@ -1293,9 +1218,9 @@ def adb_devices(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
 
 @app.get("/api/adb/packages")
 def adb_packages(limit: int | None = None, _: AuthResult = Depends(require_token)) -> dict[str, Any]:
-    max_limit = 200
+    max_limit = 5000
     if limit is None or limit <= 0:
-        limit = 120
+        limit = max_limit
     limit = min(limit, max_limit)
     cfg = read_config()
     device_id = (cfg.device_id or "").strip() or None
@@ -1308,39 +1233,11 @@ def adb_packages(limit: int | None = None, _: AuthResult = Depends(require_token
     if not device_id:
         raise HTTPException(status_code=400, detail="未选择设备（请先在设备列表中点“选用”）")
     try:
-        pkgs = list_packages(third_party=True, device_id=device_id, raise_on_error=True)[:limit]
+        pkgs = list_packages(third_party=True, device_id=device_id, raise_on_error=True)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    return {"packages": [{"package": p} for p in pkgs], "device_id": device_id, "count": len(pkgs)}
-
-
-@app.get("/api/adb/package/icon")
-def adb_package_icon(package: str, _: AuthResult = Depends(require_token)) -> dict[str, Any]:
-    pkg = str(package or "").strip()
-    if not pkg:
-        raise HTTPException(status_code=400, detail="package 不能为空")
-    cfg = read_config()
-    device_id = (cfg.device_id or "").strip() or None
-    if not device_id:
-        ds = devices(raise_on_error=False)
-        for d in ds:
-            if d.status == "device":
-                device_id = d.serial
-                break
-    if not device_id:
-        raise HTTPException(status_code=400, detail="未选择设备（请先在设备列表中点“选用”）")
-
-    ok, b64, meta, msg = package_icon_base64(pkg, device_id=device_id)
-    if not ok or not b64:
-        raise HTTPException(status_code=404, detail=msg or "icon not found")
-    return {
-        "ok": True,
-        "device_id": device_id,
-        "package": pkg,
-        "image_base64": b64,
-        "width": meta.get("width"),
-        "height": meta.get("height"),
-    }
+    pkgs = pkgs[:limit]
+    return {"packages": pkgs, "device_id": device_id, "count": len(pkgs), "limit": limit}
 
 # 写入 apps.py
 @app.post("/api/adb/packages/add")
