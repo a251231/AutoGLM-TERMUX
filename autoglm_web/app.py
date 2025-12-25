@@ -29,6 +29,7 @@ from .auth import AuthResult, require_token
 from .config import AutoglmConfig, config_exists, config_sh_path, read_config, update_device_id, write_config
 from .net import candidate_urls
 from .storage import delete_task, list_tasks, upsert_task
+from . import schedule
 from .tasks_runner import get_interactive_log, new_session, run_prompt_once, run_task_by_id, send_interactive
 
 app = FastAPI(title="AutoGLM Web", version=__version__)
@@ -388,6 +389,38 @@ def index() -> str:
                 <button onclick="resetTaskForm()">清空表单</button>
               </div>
               <div class="muted">提示：如需指定设备，可在每个 step 里加 `device_id` 字段覆盖默认设备。</div>
+            </div>
+
+            <div class="card">
+              <div class="cardHead">
+                <h3 class="grow">调度（秒级 cron，北京时区）</h3>
+                <button onclick="loadSchedules()">刷新调度</button>
+              </div>
+              <div class="grid2">
+                <div>
+                  <label>任务</label>
+                  <select id="sched_task"></select>
+                </div>
+                <div>
+                  <label>cron（6 段，秒 分 时 日 月 周）</label>
+                  <input id="sched_cron" placeholder="0 */5 * * * *" />
+                </div>
+              </div>
+              <div class="row" style="margin-top:10px; align-items:center;">
+                <label style="margin:0;">调度 ID（留空则新增）</label>
+                <input id="sched_id" style="flex:1;" placeholder="可选，用于更新已有调度" />
+                <label style="margin:0; margin-left:10px;">启用</label>
+                <input type="checkbox" id="sched_enabled" checked />
+              </div>
+              <div class="row" style="margin-top:10px;">
+                <button class="primary" onclick="saveSchedule()">保存调度</button>
+                <button onclick="resetScheduleForm()">清空调度表单</button>
+              </div>
+              <div class="muted" id="schedMsg"></div>
+              <table style="margin-top:10px;">
+                <thead><tr><th>ID</th><th>任务</th><th>cron</th><th>状态</th><th>最近运行</th><th>操作</th></tr></thead>
+                <tbody id="schedBody"></tbody>
+              </table>
             </div>
 
             <div class="card">
@@ -817,6 +850,16 @@ function renderTasks(list) {{
   tasksCache = list || [];
   const body = document.getElementById("tasksBody");
   body.textContent = "";
+  const sel = document.getElementById("sched_task");
+  if (sel) {{
+    sel.textContent = "";
+    for (const t of tasksCache) {{
+      const opt = document.createElement("option");
+      opt.value = t.id || "";
+      opt.textContent = (t.name || t.id || "");
+      sel.appendChild(opt);
+    }}
+  }}
   for (const t of tasksCache) {{
     const tr = document.createElement("tr");
 
@@ -903,6 +946,104 @@ function editTask(id) {{
   document.getElementById("task_desc").value = t.description || "";
   document.getElementById("task_prompt").value = t.prompt || "";
   document.getElementById("task_steps").value = JSON.stringify(t.steps || [], null, 2);
+}}
+
+// 调度
+function resetScheduleForm() {{
+  document.getElementById("sched_id").value = "";
+  document.getElementById("sched_cron").value = "";
+  document.getElementById("sched_enabled").checked = true;
+  setMsg("schedMsg", "");
+}}
+
+function renderSchedules(list) {{
+  const body = document.getElementById("schedBody");
+  body.textContent = "";
+  for (const s of list || []) {{
+    const tr = document.createElement("tr");
+    const tdId = document.createElement("td");
+    tdId.textContent = s.id || "";
+    tr.appendChild(tdId);
+    const tdTask = document.createElement("td");
+    const task = tasksCache.find(t => t.id === s.task_id);
+    tdTask.textContent = task ? (task.name || task.id) : (s.task_id || "");
+    tr.appendChild(tdTask);
+    const tdCron = document.createElement("td");
+    tdCron.textContent = s.cron || "";
+    tr.appendChild(tdCron);
+    const tdEnabled = document.createElement("td");
+    const lastHist = (s.history || []).slice(-1)[0];
+    const lastResult = lastHist ? ((lastHist.ok ? "OK" : "FAIL") + (lastHist.output ? (": " + lastHist.output) : "")) : "";
+    tdEnabled.textContent = s.enabled ? "启用" : "停用";
+    if (lastResult) tdEnabled.title = lastResult;
+    tr.appendChild(tdEnabled);
+    const tdLast = document.createElement("td");
+    const lastTs = parseInt(s.last_run_ts || 0, 10);
+    tdLast.textContent = lastTs ? new Date(lastTs * 1000).toLocaleString("zh-CN", {{ timeZone: "Asia/Shanghai" }}) : "-";
+    tr.appendChild(tdLast);
+    const tdOps = document.createElement("td");
+    const btnFill = document.createElement("button");
+    btnFill.textContent = "填入表单";
+    btnFill.onclick = () => {{
+      document.getElementById("sched_id").value = s.id || "";
+      document.getElementById("sched_cron").value = s.cron || "";
+      document.getElementById("sched_enabled").checked = !!s.enabled;
+      document.getElementById("sched_task").value = s.task_id || "";
+    }};
+    const btnDel = document.createElement("button");
+    btnDel.textContent = "删除";
+    btnDel.onclick = () => deleteSchedule(s.id || "");
+    tdOps.appendChild(btnFill);
+    tdOps.appendChild(document.createTextNode(" "));
+    tdOps.appendChild(btnDel);
+    tr.appendChild(tdOps);
+    body.appendChild(tr);
+  }}
+}}
+
+async function loadSchedules() {{
+  try {{
+    const data = await apiJson("/api/schedules");
+    renderSchedules(data.schedules || []);
+    setMsg("schedMsg", "调度已刷新");
+  }} catch (e) {{
+    setMsg("schedMsg", "刷新失败: " + e.message);
+  }}
+}}
+
+async function saveSchedule() {{
+  const schedId = document.getElementById("sched_id").value.trim();
+  const taskId = document.getElementById("sched_task").value.trim();
+  const cron = document.getElementById("sched_cron").value.trim();
+  const enabled = document.getElementById("sched_enabled").checked;
+  if (!taskId) {{
+    setMsg("schedMsg", "请选择任务");
+    return;
+  }}
+  if (!cron) {{
+    setMsg("schedMsg", "请填写 cron 表达式");
+    return;
+  }}
+  try {{
+    const payload = {{ id: schedId, task_id: taskId, cron, enabled }};
+    const data = await apiJson("/api/schedules", {{ method: "POST", body: JSON.stringify(payload) }});
+    setMsg("schedMsg", data.message || "已保存");
+    await loadSchedules();
+  }} catch (e) {{
+    setMsg("schedMsg", "保存失败: " + e.message);
+  }}
+}}
+
+async function deleteSchedule(id) {{
+  if (!id) return;
+  if (!confirm("删除该调度？")) return;
+  try {{
+    await apiJson(`/api/schedules/${{id}}`, {{ method: "DELETE" }});
+    setMsg("schedMsg", "已删除");
+    await loadSchedules();
+  }} catch (e) {{
+    setMsg("schedMsg", "删除失败: " + e.message);
+  }}
 }}
 
 async function deleteTask(id) {{
@@ -1112,6 +1253,7 @@ async function refreshAll() {{
   await loadConfig();
   await loadDevices();
   await loadTasks();
+  await loadSchedules();
   await autoglmStatus();
   await refreshScreenshot();
 }}
@@ -1327,6 +1469,50 @@ def api_run_task(task_id: str, payload: dict[str, Any] | None = None, _: AuthRes
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     return {"ok": True, "results": results}
+
+
+# 调度
+@app.get("/api/schedules")
+def api_list_schedules(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    return {"schedules": schedule.list_schedules()}
+
+
+@app.post("/api/schedules")
+def api_save_schedule(payload: dict[str, Any], _: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    task_id = str(payload.get("task_id", "")).strip()
+    cron = str(payload.get("cron", "")).strip()
+    sched_id = str(payload.get("id", "")).strip()
+    enabled = bool(payload.get("enabled", True))
+    tasks = list_tasks()
+    if not task_id or not any(t.get("id") == task_id for t in tasks):
+        raise HTTPException(status_code=400, detail="任务不存在")
+    if not cron or not schedule.is_valid_cron(cron):
+        raise HTTPException(status_code=400, detail="cron 表达式无效（需 6 段，秒 分 时 日 月 周）")
+    existing = None
+    for s in schedule.list_schedules():
+        if s.get("id") == sched_id:
+            existing = s
+            break
+    base = existing or {}
+    new_sched = {
+        "id": sched_id,
+        "task_id": task_id,
+        "cron": cron,
+        "enabled": enabled,
+        "last_run_ts": base.get("last_run_ts", 0),
+        "history": base.get("history", []),
+    }
+    saved = schedule.upsert_schedule(new_sched)
+    schedule.ensure_scheduler_started()
+    return {"ok": True, "schedule": saved, "message": "调度已保存"}
+
+
+@app.delete("/api/schedules/{sched_id}")
+def api_delete_schedule(sched_id: str, _: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    ok = schedule.delete_schedule(sched_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="未找到调度")
+    return {"ok": True}
 
 # 交互模式（仅日志片段）
 @app.post("/api/interactive/start")

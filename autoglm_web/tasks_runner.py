@@ -10,6 +10,7 @@ from typing import Any
 
 from . import adb
 from . import autoglm_process
+from . import schedule
 from .config import config_sh_path, read_config
 from .storage import find_by_id, list_tasks
 
@@ -241,6 +242,11 @@ def run_task_by_id(task_id: str, params: dict[str, Any] | None = None) -> list[d
         if not ok:
             break
     return results
+
+
+# 调度器接入：避免循环引用，定义后再配置 runner
+schedule.configure_runner(run_task_by_id)
+schedule.ensure_scheduler_started()
 
 
 MAX_SESSIONS = 50  # 会话上限，超出则丢弃最早的
