@@ -82,6 +82,22 @@ def upsert_schedule(sched: dict[str, Any]) -> dict[str, Any]:
         return sched
 
 
+def update_schedule_run_state(sched_id: str, last_run_ts: int, history: list[dict[str, Any]]) -> bool:
+    if not sched_id:
+        return False
+    with _lock:
+        items = _load_json(schedules_path())
+        idx = _find_index(items, sched_id)
+        if idx < 0:
+            return False
+        item = items[idx]
+        item["last_run_ts"] = int(last_run_ts or 0)
+        item["history"] = history or []
+        items[idx] = item
+        _dump_json(schedules_path(), items)
+        return True
+
+
 def delete_schedule(sched_id: str) -> bool:
     with _lock:
         items = _load_json(schedules_path())
@@ -169,6 +185,50 @@ def is_valid_cron(expr: str) -> bool:
     return True
 
 
+def _cron_sets(expr: str) -> tuple[set[int], set[int], set[int], set[int], set[int], set[int]] | None:
+    parts = expr.strip().split()
+    if len(parts) != 6:
+        return None
+    ranges = [(0, 59), (0, 59), (0, 23), (1, 31), (1, 12), (0, 7)]
+    values: list[set[int]] = []
+    for field, (lo, hi) in zip(parts, ranges):
+        parsed = _parse_field(field.strip(), lo, hi)
+        if not parsed:
+            return None
+        values.append(parsed)
+    return values[0], values[1], values[2], values[3], values[4], values[5]
+
+
+def next_run_ts(expr: str, now: _dt.datetime | None = None, max_scan_seconds: int = 31 * 24 * 3600) -> int:
+    fields = _cron_sets(expr)
+    if not fields:
+        return 0
+    sec_set, min_set, hour_set, dom_set, month_set, dow_set = fields
+    if 7 in dow_set:
+        dow_set = set(dow_set)
+        dow_set.add(0)
+    if now is None:
+        now = _now_beijing()
+    start = now + _dt.timedelta(seconds=1)
+    for offset in range(max_scan_seconds):
+        dt = start + _dt.timedelta(seconds=offset)
+        if dt.second not in sec_set:
+            continue
+        if dt.minute not in min_set:
+            continue
+        if dt.hour not in hour_set:
+            continue
+        if dt.day not in dom_set:
+            continue
+        if dt.month not in month_set:
+            continue
+        cron_dow = (dt.weekday() + 1) % 7
+        if cron_dow not in dow_set:
+            continue
+        return int(dt.timestamp())
+    return 0
+
+
 def _now_beijing() -> _dt.datetime:
     tz = _dt.timezone(_dt.timedelta(hours=8))
     return _dt.datetime.now(tz=tz)
@@ -235,7 +295,11 @@ def _tick_loop() -> None:
                 running_tasks.add(task_id)
                 try:
                     _run_once(sched)
-                    upsert_schedule(sched)
+                    update_schedule_run_state(
+                        str(sched.get("id") or ""),
+                        int(sched.get("last_run_ts", 0) or 0),
+                        sched.get("history") or [],
+                    )
                 finally:
                     running_tasks.discard(task_id)
         except Exception:

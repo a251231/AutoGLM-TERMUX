@@ -404,6 +404,7 @@ def index() -> str:
                 <div>
                   <label>cron（6 段，秒 分 时 日 月 周）</label>
                   <input id="sched_cron" placeholder="0 */5 * * * *" />
+                  <div class="muted" id="schedPreview"></div>
                 </div>
               </div>
               <div class="row" style="margin-top:10px; align-items:center;">
@@ -949,12 +950,55 @@ function editTask(id) {{
 }}
 
 // 调度
-function resetScheduleForm() {{
-  document.getElementById("sched_id").value = "";
-  document.getElementById("sched_cron").value = "";
-  document.getElementById("sched_enabled").checked = true;
-  setMsg("schedMsg", "");
-}}
+  let schedPreviewTimer = 0;
+
+  function setSchedulePreview(text) {{
+    const el = document.getElementById("schedPreview");
+    if (el) el.textContent = text || "";
+  }}
+
+  function formatShanghaiTs(ts) {{
+    return new Date(ts * 1000).toLocaleString("zh-CN", {{ timeZone: "Asia/Shanghai" }});
+  }}
+
+  async function previewCron(cron) {{
+    try {{
+      const data = await apiJson(`/api/schedules/preview?cron=${{encodeURIComponent(cron)}}`);
+      if (data && data.ok && data.next_run_ts) {{
+        setSchedulePreview("\\u4e0b\\u6b21\\u6267\\u884c\\uff1a" + formatShanghaiTs(data.next_run_ts));
+        return;
+      }}
+      const msg = (data && data.message) ? data.message : "\\u65e0\\u6cd5\\u9884\\u89c8";
+      setSchedulePreview(msg);
+    }} catch (e) {{
+      setSchedulePreview("\\u9884\\u89c8\\u5931\\u8d25: " + e.message);
+    }}
+  }}
+
+  function schedulePreviewCron() {{
+    const cron = document.getElementById("sched_cron").value.trim();
+    if (!cron) {{
+      setSchedulePreview("");
+      return;
+    }}
+    if (schedPreviewTimer) clearTimeout(schedPreviewTimer);
+    schedPreviewTimer = setTimeout(() => previewCron(cron), 400);
+  }}
+
+  function initSchedulePreview() {{
+    const input = document.getElementById("sched_cron");
+    if (!input) return;
+    input.addEventListener("input", () => schedulePreviewCron());
+    input.addEventListener("change", () => schedulePreviewCron());
+  }}
+
+  function resetScheduleForm() {{
+    document.getElementById("sched_id").value = "";
+    document.getElementById("sched_cron").value = "";
+    document.getElementById("sched_enabled").checked = true;
+    setMsg("schedMsg", "");
+    setSchedulePreview("");
+  }}
 
 function renderSchedules(list) {{
   const body = document.getElementById("schedBody");
@@ -984,12 +1028,13 @@ function renderSchedules(list) {{
     const tdOps = document.createElement("td");
     const btnFill = document.createElement("button");
     btnFill.textContent = "填入表单";
-    btnFill.onclick = () => {{
-      document.getElementById("sched_id").value = s.id || "";
-      document.getElementById("sched_cron").value = s.cron || "";
-      document.getElementById("sched_enabled").checked = !!s.enabled;
-      document.getElementById("sched_task").value = s.task_id || "";
-    }};
+      btnFill.onclick = () => {{
+        document.getElementById("sched_id").value = s.id || "";
+        document.getElementById("sched_cron").value = s.cron || "";
+        document.getElementById("sched_enabled").checked = !!s.enabled;
+        document.getElementById("sched_task").value = s.task_id || "";
+        schedulePreviewCron();
+      }};
     const btnDel = document.createElement("button");
     btnDel.textContent = "删除";
     btnDel.onclick = () => deleteSchedule(s.id || "");
@@ -1271,7 +1316,8 @@ async function loadServerInfo() {{
 document.getElementById("token").value = localStorage.getItem(LS_TOKEN_KEY) || "";
 const screenImgEl = document.getElementById("screenImg");
 if (screenImgEl) screenImgEl.addEventListener("click", onScreenClick);
-initTabs();
+  initTabs();
+  initSchedulePreview();
 document.addEventListener("visibilitychange", () => {{
   if (!screenAuto) return;
   if (document.visibilityState === "visible") {{
@@ -1472,6 +1518,27 @@ def api_run_task(task_id: str, payload: dict[str, Any] | None = None, _: AuthRes
 
 
 # 调度
+@app.get("/api/schedules/preview")
+def api_preview_schedule(cron: str = "", _: AuthResult = Depends(require_token)) -> dict[str, Any]:
+    expr = str(cron or "").strip()
+    if not expr:
+        return {"ok": False, "next_run_ts": 0, "message": "\u8bf7\u586b\u5199 cron \u8868\u8fbe\u5f0f"}
+    if not schedule.is_valid_cron(expr):
+        return {
+            "ok": False,
+            "next_run_ts": 0,
+            "message": "cron \u8868\u8fbe\u5f0f\u65e0\u6548\uff08\u9700 6 \u6bb5\uff0c\u79d2 \u5206 \u65f6 \u65e5 \u6708 \u5468\uff09",
+        }
+    ts = schedule.next_run_ts(expr)
+    if not ts:
+        return {
+            "ok": False,
+            "next_run_ts": 0,
+            "message": "\u672a\u627e\u5230\u4e0b\u6b21\u6267\u884c\u65f6\u95f4\uff08\u53ef\u80fd\u8d85\u51fa\u9884\u89c8\u8303\u56f4\uff09",
+        }
+    return {"ok": True, "next_run_ts": ts}
+
+
 @app.get("/api/schedules")
 def api_list_schedules(_: AuthResult = Depends(require_token)) -> dict[str, Any]:
     return {"schedules": schedule.list_schedules()}
